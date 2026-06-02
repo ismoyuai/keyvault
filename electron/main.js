@@ -16,7 +16,7 @@ const { initDatabase, closeDatabase, addEntry, addEntries, getEntry, updateEntry
         hasImported, logImport } = require('./storage/database.cjs')
 const { getDeviceId } = require('./utils/identity.cjs')
 const { createWebDAVClient, testConnection } = require('./sync/webdav-client.cjs')
-const { push, pull, getStatus } = require('./sync/sync-engine.cjs')
+const { push, pull, getStatus, mergeEntries } = require('./sync/sync-engine.cjs')
 const { parseBrowserCSV, deduplicateEntries } = require('./import/browser-csv.cjs')
 const { parseTextContent } = require('./import/text-parser.cjs')
 
@@ -283,7 +283,11 @@ ipcMain.handle('sync:push', wrapIPC(async () => {
   const webdavConfig = decryptWebDAVCredentials(config.webdav)
   createWebDAVClient(webdavConfig)
   const data = exportEncrypted()
-  return await push(data, getDeviceIdSafe())
+  const result = await push(data, getDeviceIdSafe(), config.lastSyncTime || null)
+  // Update sync time
+  config.lastSyncTime = result.exported_at
+  saveConfig(config)
+  return result
 }))
 
 ipcMain.handle('sync:pull', wrapIPC(async () => {
@@ -293,7 +297,21 @@ ipcMain.handle('sync:pull', wrapIPC(async () => {
   const webdavConfig = decryptWebDAVCredentials(config.webdav)
   createWebDAVClient(webdavConfig)
   const result = await pull()
-  if (result.data) importEncrypted(result.data)
+  if (result.data) {
+    if (result.version >= 2) {
+      // Incremental sync: merge instead of replace
+      const localData = exportEncrypted()
+      const { entries } = mergeEntries(localData.entries, result.data.entries || [])
+      importEncrypted({ ...result.data, entries })
+    } else {
+      // v1 full sync compatibility
+      importEncrypted(result.data)
+    }
+  }
+  // Update sync time
+  const appConfig = loadConfig()
+  appConfig.lastSyncTime = new Date().toISOString()
+  saveConfig(appConfig)
   return result
 }))
 
