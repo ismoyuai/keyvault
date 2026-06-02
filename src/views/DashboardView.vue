@@ -19,6 +19,12 @@
       </div>
     </div>
 
+    <!-- 安全审计警告 -->
+    <div v-if="auditResult && auditResult.score < 80" class="audit-banner" @click="showAudit = true">
+      <span class="audit-icon">⚠️</span>
+      <span>安全评分: {{ auditResult.score }}/100 — 点击查看详情</span>
+    </div>
+
     <!-- 条目类型筛选 -->
     <div class="filter-bar">
       <button v-for="f in filters" :key="f.key" class="filter-chip"
@@ -29,8 +35,8 @@
     </div>
 
     <!-- 条目列表 -->
-    <div class="entry-list" v-if="entries.length > 0">
-      <div v-for="entry in entries" :key="entry.id" class="entry-card"
+    <div class="entry-list" v-if="entriesStore.entries.length > 0">
+      <div v-for="entry in entriesStore.entries" :key="entry.id" class="entry-card"
            @click="openEntry(entry.id)" @contextmenu.prevent="showContext($event, entry)">
         <div class="entry-icon">{{ typeIcon(entry.type) }}</div>
         <div class="entry-info">
@@ -75,7 +81,10 @@
           <el-input v-model="newEntry.username" placeholder="邮箱或用户名" />
         </el-form-item>
         <el-form-item :label="newEntry.type === 'apikey' ? 'API Key' : '密码'">
-          <el-input v-model="newEntry.password" type="password" show-password />
+          <div class="password-input-row">
+            <el-input v-model="newEntry.password" type="password" show-password />
+            <el-button @click="generateAndFill" size="small">🎲 生成</el-button>
+          </div>
         </el-form-item>
         <el-form-item v-if="newEntry.type !== 'apikey'" label="网址">
           <el-input v-model="newEntry.url" placeholder="https://" />
@@ -104,6 +113,40 @@
       <div class="ctx-separator"></div>
       <div class="ctx-item danger" @click="confirmDelete(contextMenu.entry)">🗑️ 删除</div>
     </div>
+
+    <el-dialog v-model="showAudit" title="安全审计报告" width="600px" :append-to-body="true">
+      <div v-if="auditResult" class="audit-report">
+        <div class="audit-score">
+          <div class="score-circle" :class="scoreLevel">
+            {{ auditResult.score }}
+          </div>
+          <div class="score-label">安全评分</div>
+        </div>
+
+        <div v-if="auditResult.weak.length > 0" class="audit-section">
+          <h4>⚠️ 弱密码 ({{ auditResult.weak.length }})</h4>
+          <div v-for="item in auditResult.weak" :key="item.id" class="audit-item">
+            <span>{{ item.title }}</span>
+            <span class="audit-reason">{{ item.reason }}</span>
+          </div>
+        </div>
+
+        <div v-if="auditResult.duplicate.length > 0" class="audit-section">
+          <h4>🔄 重复密码 ({{ auditResult.duplicate.length }})</h4>
+          <div v-for="(item, i) in auditResult.duplicate" :key="i" class="audit-item">
+            <span>{{ item.titles.join(' = ') }}</span>
+          </div>
+        </div>
+
+        <div v-if="auditResult.old.length > 0" class="audit-section">
+          <h4>📅 超过90天未更新 ({{ auditResult.old.length }})</h4>
+          <div v-for="item in auditResult.old" :key="item.id" class="audit-item">
+            <span>{{ item.title }}</span>
+            <span class="audit-reason">最后更新: {{ new Date(item.lastUpdated).toLocaleDateString('zh-CN') }}</span>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -111,11 +154,18 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { useEntriesStore } from '@/stores/entries'
+import { useClipboard } from '@/composables/useClipboard'
+import { usePasswordGenerator } from '@/composables/usePasswordGenerator'
 
 const route = useRoute()
 const router = useRouter()
+const entriesStore = useEntriesStore()
+const { copy: clipboardCopy } = useClipboard()
+const { generate } = usePasswordGenerator()
+const auditResult = ref(null)
+const showAudit = ref(false)
 
-const entries = ref([])
 const searchQuery = ref('')
 const activeFilter = ref('all')
 const showAddDialog = ref(false)
@@ -146,27 +196,36 @@ const contextMenuStyle = computed(() => ({
   top: contextMenu.value.y + 'px',
 }))
 
-onMounted(loadEntries)
-
-watch(() => route.query, () => {
-  if (route.query.group) {
-    loadEntries({ group_id: route.query.group })
-  }
+const scoreLevel = computed(() => {
+  if (!auditResult.value) return ''
+  const s = auditResult.value.score
+  if (s >= 80) return 'good'
+  if (s >= 60) return 'fair'
+  return 'weak'
 })
 
-async function loadEntries(filters) {
+onMounted(async () => {
+  await entriesStore.loadEntries()
   try {
-    entries.value = await window.keyvault.entries.list(filters || {})
-  } catch (e) {
-    console.error(e)
+    auditResult.value = await window.keyvault.audit.passwords()
+  } catch {}
+})
+
+watch(() => route.query, (query) => {
+  if (query.group) {
+    entriesStore.loadEntries({ group_id: query.group })
+  } else if (query.favorites) {
+    entriesStore.loadEntries({ favorites: true })
+  } else {
+    entriesStore.loadEntries()
   }
-}
+}, { immediate: true })
 
 function setFilter(key) {
   activeFilter.value = key
-  if (key === 'all') loadEntries()
-  else if (key === 'favorites') loadEntries({ favorites: true })
-  else loadEntries({ type: key })
+  if (key === 'all') entriesStore.loadEntries()
+  else if (key === 'favorites') entriesStore.loadEntries({ favorites: true })
+  else entriesStore.loadEntries({ type: key })
 }
 
 let searchTimer = null
@@ -174,19 +233,18 @@ function onSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     if (searchQuery.value.trim()) {
-      entries.value = await window.keyvault.entries.search(searchQuery.value)
+      await entriesStore.searchEntries(searchQuery.value)
     } else {
-      loadEntries()
+      entriesStore.loadEntries()
     }
   }, 300)
 }
 
 async function addEntry() {
   try {
-    await window.keyvault.entries.add(newEntry.value)
+    await entriesStore.addEntry(newEntry.value)
     showAddDialog.value = false
     newEntry.value = { type: 'password', title: '', username: '', password: '', url: '', notes: '' }
-    loadEntries()
     ElMessage.success('已保存')
   } catch (e) {
     ElMessage.error(e.message)
@@ -198,8 +256,8 @@ function openEntry(id) {
 }
 
 async function copyPassword(entry) {
-  await window.keyvault.clipboard.copy(entry.password)
-  ElMessage.success('密码已复制，30秒后自动清除')
+  const seconds = await clipboardCopy(entry.password, '密码')
+  ElMessage.success(`密码已复制，${seconds}秒后自动清除`)
 }
 
 async function copyUsername(entry) {
@@ -209,9 +267,12 @@ async function copyUsername(entry) {
   }
 }
 
+function generateAndFill() {
+  newEntry.value.password = generate()
+}
+
 async function toggleFavorite(entry) {
-  await window.keyvault.entries.update(entry.id, { favorite: !entry.favorite })
-  loadEntries()
+  await entriesStore.updateEntry(entry.id, { favorite: !entry.favorite })
 }
 
 async function confirmDelete(entry) {
@@ -221,8 +282,7 @@ async function confirmDelete(entry) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await window.keyvault.entries.delete(entry.id)
-    loadEntries()
+    await entriesStore.deleteEntry(entry.id)
     ElMessage.success('已删除')
   } catch {}
 }
@@ -357,4 +417,61 @@ function showContext(event, entry) {
 .ctx-item:hover { background: var(--bg-hover); }
 .ctx-item.danger { color: var(--danger); }
 .ctx-separator { height: 1px; background: var(--border); margin: 4px 0; }
+
+.audit-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(230, 162, 60, 0.15);
+  border: 1px solid #e6a23c;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #e6a23c;
+}
+.audit-banner:hover { background: rgba(230, 162, 60, 0.25); }
+
+.audit-report { padding: 8px; }
+.audit-score {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.score-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  font-size: 28px;
+  font-weight: bold;
+  color: white;
+  margin-bottom: 8px;
+}
+.score-circle.good { background: #67c23a; }
+.score-circle.fair { background: #e6a23c; }
+.score-circle.weak { background: #f56c6c; }
+.score-label { font-size: 14px; color: var(--text-secondary); }
+
+.audit-section { margin-bottom: 16px; }
+.audit-section h4 { font-size: 14px; color: var(--text-primary); margin-bottom: 8px; }
+.audit-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.audit-reason { color: var(--text-secondary); }
+
+.password-input-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.password-input-row .el-input { flex: 1; }
 </style>

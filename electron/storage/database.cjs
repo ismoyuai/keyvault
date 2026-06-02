@@ -47,6 +47,11 @@ async function initDatabase(filePath) {
   `)
   db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 
+  db.run('CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(type)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(group_id)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_entries_favorite ON entries(favorite)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_entries_deleted ON entries(deleted)')
+
   saveDb()
   return db
 }
@@ -66,13 +71,16 @@ function closeDatabase() {
 // Helper: run a query and return results as array of objects
 function queryAll(sql, params) {
   const stmt = db.prepare(sql)
-  if (params) stmt.bind(params)
-  const results = []
-  while (stmt.step()) {
-    results.push(stmt.getAsObject())
+  try {
+    if (params) stmt.bind(params)
+    const results = []
+    while (stmt.step()) {
+      results.push(stmt.getAsObject())
+    }
+    return results
+  } finally {
+    stmt.free()
   }
-  stmt.free()
-  return results
 }
 
 // Helper: run a query and return first row
@@ -253,8 +261,61 @@ function logImport(source, fileHash, count) {
   saveDb()
 }
 
+function beginTransaction() {
+  db.run('BEGIN TRANSACTION')
+}
+
+function commit() {
+  db.run('COMMIT')
+}
+
+function rollback() {
+  db.run('ROLLBACK')
+}
+
+function addEntries(dataArray, key) {
+  const now = new Date().toISOString()
+  beginTransaction()
+  try {
+    const ids = []
+    for (const data of dataArray) {
+      const id = uuidv4()
+      db.run(
+        `INSERT INTO entries (id, type, title_encrypted, username_encrypted, password_encrypted,
+         url_encrypted, notes_encrypted, group_id, tags_encrypted, favorite,
+         created_at, updated_at, device_id, deleted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, data.type || 'password',
+         encryptField(data.title, key),
+         encryptField(data.username, key),
+         encryptField(data.password, key),
+         encryptField(data.url, key),
+         encryptField(data.notes, key),
+         data.group_id || 'default',
+         encryptField(JSON.stringify(data.tags || []), key),
+         data.favorite ? 1 : 0,
+         now, now, data.device_id || 'unknown', 0]
+      )
+      ids.push(id)
+    }
+    commit()
+    saveDb()
+    return ids
+  } catch (e) {
+    rollback()
+    throw e
+  }
+}
+
+function purgeDeleted(olderThanDays = 30) {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+  db.run('DELETE FROM entries WHERE deleted = 1 AND updated_at < ?', [cutoff])
+  saveDb()
+}
+
 module.exports = {
-  initDatabase, closeDatabase, addEntry, getEntry, updateEntry, deleteEntry,
+  initDatabase, closeDatabase, addEntry, addEntries, getEntry, updateEntry, deleteEntry,
   listEntries, searchEntries, exportEncrypted, importEncrypted,
-  addGroup, listGroups, deleteGroup, getSetting, setSetting, hasImported, logImport
+  addGroup, listGroups, deleteGroup, getSetting, setSetting, hasImported, logImport,
+  beginTransaction, commit, rollback, purgeDeleted
 }

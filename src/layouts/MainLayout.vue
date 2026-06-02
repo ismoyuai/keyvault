@@ -37,7 +37,7 @@
 
         <div class="sidebar-groups">
           <div class="group-header">分组</div>
-          <div v-for="group in groups" :key="group.id" class="nav-item group-item"
+          <div v-for="group in groupsStore.groups" :key="group.id" class="nav-item group-item"
                :class="{ active: currentGroup === group.id }"
                @click="selectGroup(group.id)">
             <span class="nav-icon">{{ groupIcon(group.icon) }}</span>
@@ -66,12 +66,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
 
 const route = useRoute()
 const router = useRouter()
-const groups = ref([])
+const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const currentGroup = ref(null)
 
 const ICONS = {
@@ -83,12 +86,13 @@ function groupIcon(icon) {
   return ICONS[icon] || '📁'
 }
 
-onMounted(async () => {
-  try {
-    groups.value = await window.keyvault.groups.list()
-  } catch (e) {
-    console.error('Load groups failed:', e)
-  }
+onMounted(() => {
+  groupsStore.loadGroups()
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 function selectGroup(groupId) {
@@ -96,9 +100,28 @@ function selectGroup(groupId) {
   router.push({ path: '/app', query: { group: groupId } })
 }
 
-async function lockApp() {
-  await window.keyvault.auth.lock()
-  window.__keyvault_unlocked = false
+function handleKeydown(e) {
+  // Ctrl+L: Lock app
+  if (e.ctrlKey && e.key === 'l') {
+    e.preventDefault()
+    lockApp()
+  }
+
+  // Ctrl+F: Focus search box
+  if (e.ctrlKey && e.key === 'f') {
+    e.preventDefault()
+    const searchInput = document.querySelector('.search-input')
+    if (searchInput) searchInput.focus()
+  }
+
+  // Escape: Close dialogs
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.el-overlay').forEach(el => el.click())
+  }
+}
+
+function lockApp() {
+  auth.lock()
   router.push('/login')
 }
 

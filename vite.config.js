@@ -12,6 +12,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    target: 'chrome130',
+  },
+  optimizeDeps: {
+    include: ['element-plus'],
   },
   resolve: {
     alias: {
