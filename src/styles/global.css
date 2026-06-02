@@ -54,3 +54,56 @@ html, body, #app {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
 }
+
+/* Element Plus 暗色主题覆盖 */
+:root {
+  --el-bg-color: var(--bg-secondary);
+  --el-bg-color-overlay: var(--bg-tertiary);
+  --el-bg-color-page: var(--bg-primary);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-secondary);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-fill-color-blank: var(--bg-tertiary);
+  --el-fill-color-light: var(--bg-tertiary);
+  --el-color-primary: var(--accent);
+  --el-color-danger: var(--danger);
+  --el-color-warning: #e6a23c;
+  --el-color-success: #67c23a;
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+}
+
+/* 对话框暗色 */
+.el-dialog {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border) !important;
+}
+.el-dialog__title { color: var(--text-primary) !important; }
+.el-dialog__headerbtn .el-dialog__close { color: var(--text-secondary) !important; }
+
+/* 输入框暗色 */
+.el-input__wrapper {
+  background: var(--bg-tertiary) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+.el-input__inner { color: var(--text-primary) !important; }
+
+/* 下拉选择器暗色 */
+.el-select-dropdown {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+}
+.el-select-dropdown__item { color: var(--text-primary) !important; }
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item:hover {
+  background: var(--bg-hover) !important;
+}
+
+/* 按钮暗色 */
+.el-button--default {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
