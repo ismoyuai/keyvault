@@ -3,7 +3,7 @@
     <div class="login-box">
       <div class="login-logo">🔐</div>
       <h1 class="login-title">KeyVault</h1>
-      <p class="login-subtitle">{{ isSetup ? '输入 Master Password 解锁' : '设置 Master Password' }}</p>
+      <p class="login-subtitle">{{ auth.isSetup ? '输入 Master Password 解锁' : '设置 Master Password' }}</p>
 
       <div class="login-form">
         <div class="input-group">
@@ -18,7 +18,7 @@
           />
         </div>
 
-        <div v-if="!isSetup" class="input-group">
+        <div v-if="!auth.isSetup" class="input-group">
           <input
             v-model="confirmPassword"
             type="password"
@@ -39,7 +39,7 @@
         <div v-if="error" class="error-msg">{{ error }}</div>
 
         <button class="login-btn" @click="handleSubmit" :disabled="loading">
-          {{ loading ? '处理中...' : (isSetup ? '解锁' : '创建') }}
+          {{ loading ? '处理中...' : (auth.isSetup ? '解锁' : '创建') }}
         </button>
       </div>
 
@@ -53,11 +53,12 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const auth = useAuthStore()
 const password = ref('')
 const confirmPassword = ref('')
-const isSetup = ref(false)
 const error = ref('')
 const loading = ref(false)
 const passwordInput = ref(null)
@@ -86,7 +87,7 @@ const strength = computed(() => {
 })
 
 onMounted(async () => {
-  isSetup.value = await window.keyvault.auth.isSetup()
+  await auth.checkSetup()
   await nextTick()
   passwordInput.value?.focus()
 })
@@ -94,10 +95,9 @@ onMounted(async () => {
 async function handleSubmit() {
   error.value = ''
   loading.value = true
-
   try {
-    if (isSetup.value) {
-      await window.keyvault.auth.unlock(password.value)
+    if (auth.isSetup) {
+      await auth.unlock(password.value)
     } else {
       if (password.value.length < 8) {
         error.value = '密码至少需要 8 个字符'
@@ -107,10 +107,8 @@ async function handleSubmit() {
         error.value = '两次输入的密码不一致'
         return
       }
-      await window.keyvault.auth.setup(password.value)
+      await auth.setup(password.value)
     }
-
-    window.__keyvault_unlocked = true
     router.push('/app')
   } catch (e) {
     error.value = e.message

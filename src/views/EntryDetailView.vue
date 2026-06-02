@@ -51,7 +51,7 @@
 
       <div class="field">
         <label>分组</label>
-        <div class="field-value">{{ entry.group_id }}</div>
+        <div class="field-value">{{ getGroupName(entry.group_id) }}</div>
       </div>
 
       <div class="field-meta">
@@ -95,9 +95,13 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useEntriesStore } from '@/stores/entries'
+import { useGroupsStore } from '@/stores/groups'
 
 const route = useRoute()
 const router = useRouter()
+const entriesStore = useEntriesStore()
+const groupsStore = useGroupsStore()
 const entry = ref(null)
 const showPassword = ref(false)
 const editing = ref(false)
@@ -109,9 +113,15 @@ function typeIcon(t) { return typeIcons[t] || '📄' }
 function typeName(t) { return typeNames[t] || '未知' }
 function formatDate(d) { return d ? new Date(d).toLocaleString('zh-CN') : '' }
 
+function getGroupName(groupId) {
+  const group = groupsStore.groups.find(g => g.id === groupId)
+  return group ? group.name : groupId
+}
+
 onMounted(async () => {
   try {
-    entry.value = await window.keyvault.entries.get(route.params.id)
+    entry.value = await entriesStore.loadEntry(route.params.id)
+    await groupsStore.loadGroups()
   } catch (e) {
     ElMessage.error('加载失败')
     router.push('/app')
@@ -130,8 +140,8 @@ function startEdit() {
 
 async function saveEdit() {
   try {
-    await window.keyvault.entries.update(entry.value.id, editForm.value)
-    entry.value = await window.keyvault.entries.get(entry.value.id)
+    await entriesStore.updateEntry(entry.value.id, editForm.value)
+    entry.value = entriesStore.currentEntry
     editing.value = false
     ElMessage.success('已保存')
   } catch (e) {
@@ -140,14 +150,14 @@ async function saveEdit() {
 }
 
 async function toggleFavorite() {
-  await window.keyvault.entries.update(entry.value.id, { favorite: !entry.value.favorite })
-  entry.value = await window.keyvault.entries.get(entry.value.id)
+  await entriesStore.updateEntry(entry.value.id, { favorite: !entry.value.favorite })
+  entry.value = entriesStore.currentEntry
 }
 
 async function confirmDelete() {
   try {
     await ElMessageBox.confirm('确定要删除这个条目吗？', '确认', { type: 'warning' })
-    await window.keyvault.entries.delete(entry.value.id)
+    await entriesStore.deleteEntry(entry.value.id)
     router.push('/app')
     ElMessage.success('已删除')
   } catch {}

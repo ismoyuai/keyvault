@@ -29,8 +29,8 @@
     </div>
 
     <!-- 条目列表 -->
-    <div class="entry-list" v-if="entries.length > 0">
-      <div v-for="entry in entries" :key="entry.id" class="entry-card"
+    <div class="entry-list" v-if="entriesStore.entries.length > 0">
+      <div v-for="entry in entriesStore.entries" :key="entry.id" class="entry-card"
            @click="openEntry(entry.id)" @contextmenu.prevent="showContext($event, entry)">
         <div class="entry-icon">{{ typeIcon(entry.type) }}</div>
         <div class="entry-info">
@@ -111,11 +111,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { useEntriesStore } from '@/stores/entries'
 
 const route = useRoute()
 const router = useRouter()
+const entriesStore = useEntriesStore()
 
-const entries = ref([])
 const searchQuery = ref('')
 const activeFilter = ref('all')
 const showAddDialog = ref(false)
@@ -146,27 +147,19 @@ const contextMenuStyle = computed(() => ({
   top: contextMenu.value.y + 'px',
 }))
 
-onMounted(loadEntries)
+onMounted(() => entriesStore.loadEntries())
 
 watch(() => route.query, () => {
   if (route.query.group) {
-    loadEntries({ group_id: route.query.group })
+    entriesStore.loadEntries({ group_id: route.query.group })
   }
 })
 
-async function loadEntries(filters) {
-  try {
-    entries.value = await window.keyvault.entries.list(filters || {})
-  } catch (e) {
-    console.error(e)
-  }
-}
-
 function setFilter(key) {
   activeFilter.value = key
-  if (key === 'all') loadEntries()
-  else if (key === 'favorites') loadEntries({ favorites: true })
-  else loadEntries({ type: key })
+  if (key === 'all') entriesStore.loadEntries()
+  else if (key === 'favorites') entriesStore.loadEntries({ favorites: true })
+  else entriesStore.loadEntries({ type: key })
 }
 
 let searchTimer = null
@@ -174,19 +167,18 @@ function onSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     if (searchQuery.value.trim()) {
-      entries.value = await window.keyvault.entries.search(searchQuery.value)
+      await entriesStore.searchEntries(searchQuery.value)
     } else {
-      loadEntries()
+      entriesStore.loadEntries()
     }
   }, 300)
 }
 
 async function addEntry() {
   try {
-    await window.keyvault.entries.add(newEntry.value)
+    await entriesStore.addEntry(newEntry.value)
     showAddDialog.value = false
     newEntry.value = { type: 'password', title: '', username: '', password: '', url: '', notes: '' }
-    loadEntries()
     ElMessage.success('已保存')
   } catch (e) {
     ElMessage.error(e.message)
@@ -210,8 +202,7 @@ async function copyUsername(entry) {
 }
 
 async function toggleFavorite(entry) {
-  await window.keyvault.entries.update(entry.id, { favorite: !entry.favorite })
-  loadEntries()
+  await entriesStore.updateEntry(entry.id, { favorite: !entry.favorite })
 }
 
 async function confirmDelete(entry) {
@@ -221,8 +212,7 @@ async function confirmDelete(entry) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await window.keyvault.entries.delete(entry.id)
-    loadEntries()
+    await entriesStore.deleteEntry(entry.id)
     ElMessage.success('已删除')
   } catch {}
 }

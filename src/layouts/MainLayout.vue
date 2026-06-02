@@ -37,7 +37,7 @@
 
         <div class="sidebar-groups">
           <div class="group-header">分组</div>
-          <div v-for="group in groups" :key="group.id" class="nav-item group-item"
+          <div v-for="group in groupsStore.groups" :key="group.id" class="nav-item group-item"
                :class="{ active: currentGroup === group.id }"
                @click="selectGroup(group.id)">
             <span class="nav-icon">{{ groupIcon(group.icon) }}</span>
@@ -68,10 +68,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
 
 const route = useRoute()
 const router = useRouter()
-const groups = ref([])
+const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const currentGroup = ref(null)
 
 const ICONS = {
@@ -83,12 +86,8 @@ function groupIcon(icon) {
   return ICONS[icon] || '📁'
 }
 
-onMounted(async () => {
-  try {
-    groups.value = await window.keyvault.groups.list()
-  } catch (e) {
-    console.error('Load groups failed:', e)
-  }
+onMounted(() => {
+  groupsStore.loadGroups()
 })
 
 function selectGroup(groupId) {
@@ -96,9 +95,8 @@ function selectGroup(groupId) {
   router.push({ path: '/app', query: { group: groupId } })
 }
 
-async function lockApp() {
-  await window.keyvault.auth.lock()
-  window.__keyvault_unlocked = false
+function lockApp() {
+  auth.lock()
   router.push('/login')
 }
 
