@@ -45,6 +45,7 @@
   "dependencies": {
     "argon2": "^0.41.0",
     "papaparse": "^5.5.0",
+    "pinia": "^3.0.4",
     "sql.js": "^1.11.0",
     "uuid": "^11.0.0",
     "webdav": "^5.8.0"
