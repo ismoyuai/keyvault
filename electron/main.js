@@ -79,7 +79,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: false, // Required: argon2 native module needs Node.js access in main process
       webSecurity: true,
     },
     show: false,
@@ -91,6 +91,17 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  // Block navigation to external URLs
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'file:' && parsed.protocol !== 'devtools:') {
+      event.preventDefault()
+    }
+  })
+
+  // Deny all window.open() calls
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('focus', () => mainWindow.webContents.send('window:focus'))
@@ -114,6 +125,11 @@ app.whenReady().then(() => {
         ]
       }
     })
+  })
+
+  // Reject unnecessary permission requests (camera, microphone, notifications, etc.)
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(false)
   })
 })
 
