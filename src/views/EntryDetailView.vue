@@ -74,7 +74,10 @@
           <el-input v-model="editForm.username" />
         </el-form-item>
         <el-form-item :label="entry.type === 'apikey' ? 'API Key' : '密码'">
-          <el-input v-model="editForm.password" type="password" show-password />
+          <div class="password-input-row">
+            <el-input v-model="editForm.password" type="password" show-password />
+            <el-button @click="generateAndFill" size="small">🎲 生成</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="网址">
           <el-input v-model="editForm.url" />
@@ -97,6 +100,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEntriesStore } from '@/stores/entries'
 import { useGroupsStore } from '@/stores/groups'
+import { usePasswordGenerator } from '@/composables/usePasswordGenerator'
 
 const route = useRoute()
 const router = useRouter()
@@ -106,6 +110,12 @@ const entry = ref(null)
 const showPassword = ref(false)
 const editing = ref(false)
 const editForm = ref({})
+
+const { generate } = usePasswordGenerator()
+
+function generateAndFill() {
+  editForm.value.password = generate()
+}
 
 const typeIcons = { password: '🔑', apikey: '🤖', note: '📝' }
 const typeNames = { password: '密码', apikey: 'API Key', note: '笔记' }
@@ -252,4 +262,10 @@ async function confirmDelete() {
   cursor: pointer;
 }
 .btn-edit:hover { background: var(--accent-hover); }
+.password-input-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.password-input-row .el-input { flex: 1; }
 </style>
