@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
@@ -88,11 +88,36 @@ function groupIcon(icon) {
 
 onMounted(() => {
   groupsStore.loadGroups()
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
 })
 
 function selectGroup(groupId) {
   currentGroup.value = groupId
   router.push({ path: '/app', query: { group: groupId } })
+}
+
+function handleKeydown(e) {
+  // Ctrl+L: Lock app
+  if (e.ctrlKey && e.key === 'l') {
+    e.preventDefault()
+    lockApp()
+  }
+
+  // Ctrl+F: Focus search box
+  if (e.ctrlKey && e.key === 'f') {
+    e.preventDefault()
+    const searchInput = document.querySelector('.search-input')
+    if (searchInput) searchInput.focus()
+  }
+
+  // Escape: Close dialogs
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.el-overlay').forEach(el => el.click())
+  }
 }
 
 function lockApp() {
