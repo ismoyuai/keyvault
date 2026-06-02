@@ -83,6 +83,19 @@ app.whenReady().then(() => {
   dbPath = getDbPath()
   const config = loadConfig()
   storedPasswordHash = config.passwordHash || null
+
+  // ========== Content Security Policy ==========
+  const { session } = require('electron')
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:5173; font-src 'self'"
+        ]
+      }
+    })
+  })
 })
 
 app.on('window-all-closed', () => { lockApp(); app.quit() })
