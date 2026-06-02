@@ -148,12 +148,24 @@ function getDeviceIdSafe() {
   )
 }
 
+// ========== IPC 错误处理 ==========
+function wrapIPC(handler) {
+  return async (event, ...args) => {
+    try {
+      const result = await handler(event, ...args)
+      return { success: true, data: result }
+    } catch (e) {
+      return { success: false, error: e.message }
+    }
+  }
+}
+
 // ========== IPC Handlers ==========
 
 // --- Auth ---
-ipcMain.handle('auth:is-setup', () => !!storedPasswordHash)
+ipcMain.handle('auth:is-setup', wrapIPC(() => !!storedPasswordHash))
 
-ipcMain.handle('auth:setup', async (event, password) => {
+ipcMain.handle('auth:setup', wrapIPC(async (event, password) => {
   if (storedPasswordHash) throw new Error('Master Password 已设置')
   storedPasswordHash = await hashPassword(password)
   const config = loadConfig()
@@ -167,9 +179,9 @@ ipcMain.handle('auth:setup', async (event, password) => {
   addGroup('API Keys', 'key', encryptionKey)
   addGroup('网站账号', 'globe', encryptionKey)
   return { success: true }
-})
+}))
 
-ipcMain.handle('auth:unlock', async (event, password) => {
+ipcMain.handle('auth:unlock', wrapIPC(async (event, password) => {
   if (!storedPasswordHash) throw new Error('请先设置 Master Password')
   const valid = await verifyPassword(password, storedPasswordHash)
   if (!valid) throw new Error('密码错误')
@@ -177,60 +189,60 @@ ipcMain.handle('auth:unlock', async (event, password) => {
   encryptionKey = await deriveKey(password, salt)
   dbInstance = await initDatabase(dbPath)
   return { success: true }
-})
+}))
 
-ipcMain.handle('auth:lock', () => { lockApp(); return { success: true } })
-ipcMain.handle('auth:is-unlocked', () => !!encryptionKey)
+ipcMain.handle('auth:lock', wrapIPC(() => { lockApp(); return { success: true } }))
+ipcMain.handle('auth:is-unlocked', wrapIPC(() => !!encryptionKey))
 
 // --- Entries ---
-ipcMain.handle('entries:list', (event, filters) => {
+ipcMain.handle('entries:list', wrapIPC((event, filters) => {
   if (!encryptionKey) throw new Error('未解锁')
   return listEntries(encryptionKey, filters || {})
-})
+}))
 
-ipcMain.handle('entries:get', (event, id) => {
+ipcMain.handle('entries:get', wrapIPC((event, id) => {
   if (!encryptionKey) throw new Error('未解锁')
   return getEntry(id, encryptionKey)
-})
+}))
 
-ipcMain.handle('entries:add', (event, data) => {
+ipcMain.handle('entries:add', wrapIPC((event, data) => {
   if (!encryptionKey) throw new Error('未解锁')
   return addEntry({ ...data, device_id: getDeviceIdSafe() }, encryptionKey)
-})
+}))
 
-ipcMain.handle('entries:update', (event, id, data) => {
+ipcMain.handle('entries:update', wrapIPC((event, id, data) => {
   if (!encryptionKey) throw new Error('未解锁')
   return updateEntry(id, data, encryptionKey)
-})
+}))
 
-ipcMain.handle('entries:delete', (event, id) => {
+ipcMain.handle('entries:delete', wrapIPC((event, id) => {
   if (!encryptionKey) throw new Error('未解锁')
   return deleteEntry(id)
-})
+}))
 
-ipcMain.handle('entries:search', (event, query) => {
+ipcMain.handle('entries:search', wrapIPC((event, query) => {
   if (!encryptionKey) throw new Error('未解锁')
   return searchEntries(query, encryptionKey)
-})
+}))
 
 // --- Groups ---
-ipcMain.handle('groups:list', () => {
+ipcMain.handle('groups:list', wrapIPC(() => {
   if (!encryptionKey) throw new Error('未解锁')
   return listGroups(encryptionKey)
-})
+}))
 
-ipcMain.handle('groups:add', (event, name, icon) => {
+ipcMain.handle('groups:add', wrapIPC((event, name, icon) => {
   if (!encryptionKey) throw new Error('未解锁')
   return addGroup(name, icon, encryptionKey)
-})
+}))
 
-ipcMain.handle('groups:delete', (event, id) => {
+ipcMain.handle('groups:delete', wrapIPC((event, id) => {
   if (!encryptionKey) throw new Error('未解锁')
   return deleteGroup(id)
-})
+}))
 
 // --- Import ---
-ipcMain.handle('import:browser-csv', async (event, filePath) => {
+ipcMain.handle('import:browser-csv', wrapIPC(async (event, filePath) => {
   if (!encryptionKey) throw new Error('未解锁')
   const content = fs.readFileSync(filePath, 'utf8')
   const hash = crypto.createHash('sha256').update(content).digest('hex')
@@ -244,9 +256,9 @@ ipcMain.handle('import:browser-csv', async (event, filePath) => {
   }
   logImport(format, hash, imported)
   return { imported, total: entries.length, format }
-})
+}))
 
-ipcMain.handle('import:text', async (event, content) => {
+ipcMain.handle('import:text', wrapIPC(async (event, content) => {
   if (!encryptionKey) throw new Error('未解锁')
   const entries = parseTextContent(content)
   let imported = 0
@@ -256,18 +268,18 @@ ipcMain.handle('import:text', async (event, content) => {
   }
   logImport('text', crypto.createHash('sha256').update(content).digest('hex'), imported)
   return { imported, total: entries.length }
-})
+}))
 
 // --- Sync ---
-ipcMain.handle('sync:configure', (event, config) => {
+ipcMain.handle('sync:configure', wrapIPC((event, config) => {
   if (!encryptionKey) throw new Error('未解锁')
   const appConfig = loadConfig()
   appConfig.webdav = encryptWebDAVCredentials(config)
   saveConfig(appConfig)
   return { success: true }
-})
+}))
 
-ipcMain.handle('sync:push', async () => {
+ipcMain.handle('sync:push', wrapIPC(async () => {
   if (!encryptionKey) throw new Error('未解锁')
   const config = loadConfig()
   if (!config.webdav) throw new Error('请先配置 WebDAV')
@@ -275,9 +287,9 @@ ipcMain.handle('sync:push', async () => {
   createWebDAVClient(webdavConfig)
   const data = exportEncrypted()
   return await push(data, getDeviceIdSafe())
-})
+}))
 
-ipcMain.handle('sync:pull', async () => {
+ipcMain.handle('sync:pull', wrapIPC(async () => {
   if (!encryptionKey) throw new Error('未解锁')
   const config = loadConfig()
   if (!config.webdav) throw new Error('请先配置 WebDAV')
@@ -286,11 +298,11 @@ ipcMain.handle('sync:pull', async () => {
   const result = await pull()
   if (result.data) importEncrypted(result.data)
   return result
-})
+}))
 
-ipcMain.handle('sync:test', async (event, config) => await testConnection(config))
+ipcMain.handle('sync:test', wrapIPC(async (event, config) => await testConnection(config)))
 
-ipcMain.handle('sync:status', async () => {
+ipcMain.handle('sync:status', wrapIPC(async () => {
   if (!encryptionKey) return { configured: false }
   const config = loadConfig()
   if (!config.webdav) return { configured: false }
@@ -301,13 +313,13 @@ ipcMain.handle('sync:status', async () => {
   } catch (e) {
     return { configured: true, error: e.message }
   }
-})
+}))
 
 // --- Clipboard ---
-ipcMain.handle('clipboard:copy', (event, text) => { clipboard.writeText(text); return true })
+ipcMain.handle('clipboard:copy', wrapIPC((event, text) => { clipboard.writeText(text); return true }))
 
 // --- Settings ---
-ipcMain.handle('settings:get', () => {
+ipcMain.handle('settings:get', wrapIPC(() => {
   const config = loadConfig()
   return {
     autoLockMinutes: config.autoLockMinutes || 15,
@@ -315,16 +327,16 @@ ipcMain.handle('settings:get', () => {
     theme: config.theme || 'dark',
     webdav: config.webdav ? { configured: true, url: config.webdav.url } : null,
   }
-})
+}))
 
-ipcMain.handle('settings:update', (event, data) => {
+ipcMain.handle('settings:update', wrapIPC((event, data) => {
   const config = loadConfig()
   Object.assign(config, data)
   saveConfig(config)
   return { success: true }
-})
+}))
 
-ipcMain.handle('settings:change-password', async (event, oldPassword, newPassword) => {
+ipcMain.handle('settings:change-password', wrapIPC(async (event, oldPassword, newPassword) => {
   if (!storedPasswordHash) throw new Error('未设置密码')
   const valid = await verifyPassword(oldPassword, storedPasswordHash)
   if (!valid) throw new Error('旧密码错误')
@@ -337,22 +349,22 @@ ipcMain.handle('settings:change-password', async (event, oldPassword, newPasswor
   zeroBuffer(encryptionKey)
   encryptionKey = newKey
   return { success: true }
-})
+}))
 
 // --- Window controls ---
-ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-ipcMain.handle('window:maximize', () => {
+ipcMain.handle('window:minimize', wrapIPC(() => { mainWindow?.minimize() }))
+ipcMain.handle('window:maximize', wrapIPC(() => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
-})
-ipcMain.handle('window:close', () => mainWindow?.close())
+}))
+ipcMain.handle('window:close', wrapIPC(() => { mainWindow?.close() }))
 
 // --- File dialog ---
-ipcMain.handle('dialog:open-file', async (event, options) => {
+ipcMain.handle('dialog:open-file', wrapIPC(async (event, options) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: options?.filters || [],
   })
   if (result.canceled) return null
   return result.filePaths[0]
-})
+}))

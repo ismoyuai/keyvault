@@ -1,52 +1,57 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+function unwrap(result) {
+  if (!result.success) throw new Error(result.error)
+  return result.data
+}
+
 contextBridge.exposeInMainWorld('keyvault', {
   auth: {
-    isSetup: () => ipcRenderer.invoke('auth:is-setup'),
-    setup: (password) => ipcRenderer.invoke('auth:setup', password),
-    unlock: (password) => ipcRenderer.invoke('auth:unlock', password),
-    lock: () => ipcRenderer.invoke('auth:lock'),
-    isUnlocked: () => ipcRenderer.invoke('auth:is-unlocked'),
+    isSetup: async () => unwrap(await ipcRenderer.invoke('auth:is-setup')),
+    setup: async (password) => unwrap(await ipcRenderer.invoke('auth:setup', password)),
+    unlock: async (password) => unwrap(await ipcRenderer.invoke('auth:unlock', password)),
+    lock: async () => unwrap(await ipcRenderer.invoke('auth:lock')),
+    isUnlocked: async () => unwrap(await ipcRenderer.invoke('auth:is-unlocked')),
   },
   entries: {
-    list: (filters) => ipcRenderer.invoke('entries:list', filters),
-    get: (id) => ipcRenderer.invoke('entries:get', id),
-    add: (data) => ipcRenderer.invoke('entries:add', data),
-    update: (id, data) => ipcRenderer.invoke('entries:update', id, data),
-    delete: (id) => ipcRenderer.invoke('entries:delete', id),
-    search: (query) => ipcRenderer.invoke('entries:search', query),
+    list: async (filters) => unwrap(await ipcRenderer.invoke('entries:list', filters)),
+    get: async (id) => unwrap(await ipcRenderer.invoke('entries:get', id)),
+    add: async (data) => unwrap(await ipcRenderer.invoke('entries:add', data)),
+    update: async (id, data) => unwrap(await ipcRenderer.invoke('entries:update', id, data)),
+    delete: async (id) => unwrap(await ipcRenderer.invoke('entries:delete', id)),
+    search: async (query) => unwrap(await ipcRenderer.invoke('entries:search', query)),
   },
   groups: {
-    list: () => ipcRenderer.invoke('groups:list'),
-    add: (name, icon) => ipcRenderer.invoke('groups:add', name, icon),
-    delete: (id) => ipcRenderer.invoke('groups:delete', id),
+    list: async () => unwrap(await ipcRenderer.invoke('groups:list')),
+    add: async (name, icon) => unwrap(await ipcRenderer.invoke('groups:add', name, icon)),
+    delete: async (id) => unwrap(await ipcRenderer.invoke('groups:delete', id)),
   },
   import: {
-    browserCSV: (filePath) => ipcRenderer.invoke('import:browser-csv', filePath),
-    text: (content) => ipcRenderer.invoke('import:text', content),
+    browserCSV: async (filePath) => unwrap(await ipcRenderer.invoke('import:browser-csv', filePath)),
+    text: async (content) => unwrap(await ipcRenderer.invoke('import:text', content)),
   },
   sync: {
-    configure: (config) => ipcRenderer.invoke('sync:configure', config),
-    push: () => ipcRenderer.invoke('sync:push'),
-    pull: () => ipcRenderer.invoke('sync:pull'),
-    test: (config) => ipcRenderer.invoke('sync:test', config),
-    status: () => ipcRenderer.invoke('sync:status'),
+    configure: async (config) => unwrap(await ipcRenderer.invoke('sync:configure', config)),
+    push: async () => unwrap(await ipcRenderer.invoke('sync:push')),
+    pull: async () => unwrap(await ipcRenderer.invoke('sync:pull')),
+    test: async (config) => unwrap(await ipcRenderer.invoke('sync:test', config)),
+    status: async () => unwrap(await ipcRenderer.invoke('sync:status')),
   },
   clipboard: {
-    copy: (text) => ipcRenderer.invoke('clipboard:copy', text),
+    copy: async (text) => unwrap(await ipcRenderer.invoke('clipboard:copy', text)),
   },
   settings: {
-    get: () => ipcRenderer.invoke('settings:get'),
-    update: (data) => ipcRenderer.invoke('settings:update', data),
-    changePassword: (oldPwd, newPwd) => ipcRenderer.invoke('settings:change-password', oldPwd, newPwd),
+    get: async () => unwrap(await ipcRenderer.invoke('settings:get')),
+    update: async (data) => unwrap(await ipcRenderer.invoke('settings:update', data)),
+    changePassword: async (oldPwd, newPwd) => unwrap(await ipcRenderer.invoke('settings:change-password', oldPwd, newPwd)),
   },
   window: {
-    minimize: () => ipcRenderer.invoke('window:minimize'),
-    maximize: () => ipcRenderer.invoke('window:maximize'),
-    close: () => ipcRenderer.invoke('window:close'),
+    minimize: async () => unwrap(await ipcRenderer.invoke('window:minimize')),
+    maximize: async () => unwrap(await ipcRenderer.invoke('window:maximize')),
+    close: async () => unwrap(await ipcRenderer.invoke('window:close')),
   },
   dialog: {
-    openFile: (options) => ipcRenderer.invoke('dialog:open-file', options),
+    openFile: async (options) => unwrap(await ipcRenderer.invoke('dialog:open-file', options)),
   },
   onLock: (callback) => ipcRenderer.on('do:lock', callback),
 })
