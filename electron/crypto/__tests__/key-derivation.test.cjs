@@ -1,4 +1,4 @@
-const { generateSalt, deriveKey, hashPassword, verifyPassword, extractSalt } = require('../../../src/crypto/key-derivation.cjs')
+const { generateSalt, deriveKey, hashPassword, verifyPassword, extractSalt } = require('../key-derivation.cjs')
 
 describe('key-derivation.cjs', () => {
   describe('generateSalt', () => {

@@ -1,4 +1,4 @@
-const { encrypt, decrypt, encryptField, decryptField, zeroBuffer } = require('../../../src/crypto/encryption.cjs')
+const { encrypt, decrypt, encryptField, decryptField, zeroBuffer } = require('../encryption.cjs')
 const crypto = require('crypto')
 
 describe('encryption.cjs', () => {

@@ -8,17 +8,17 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit() }
 
 // ========== 核心模块 ==========
-const { deriveKey, hashPassword, verifyPassword, extractSalt } = require('../src/crypto/key-derivation.cjs')
-const { encryptField, decryptField, zeroBuffer } = require('../src/crypto/encryption.cjs')
+const { deriveKey, hashPassword, verifyPassword, extractSalt } = require('./crypto/key-derivation.cjs')
+const { encryptField, decryptField, zeroBuffer } = require('./crypto/encryption.cjs')
 const { initDatabase, closeDatabase, addEntry, getEntry, updateEntry, deleteEntry,
         listEntries, searchEntries, exportEncrypted, importEncrypted,
         addGroup, listGroups, deleteGroup, getSetting, setSetting,
-        hasImported, logImport } = require('../src/storage/database.cjs')
-const { getDeviceId } = require('../src/utils/identity.cjs')
-const { createWebDAVClient, testConnection } = require('../src/sync/webdav-client.cjs')
-const { push, pull, getStatus } = require('../src/sync/sync-engine.cjs')
-const { parseBrowserCSV, deduplicateEntries } = require('../src/import/browser-csv.cjs')
-const { parseTextContent } = require('../src/import/text-parser.cjs')
+        hasImported, logImport } = require('./storage/database.cjs')
+const { getDeviceId } = require('./utils/identity.cjs')
+const { createWebDAVClient, testConnection } = require('./sync/webdav-client.cjs')
+const { push, pull, getStatus } = require('./sync/sync-engine.cjs')
+const { parseBrowserCSV, deduplicateEntries } = require('./import/browser-csv.cjs')
+const { parseTextContent } = require('./import/text-parser.cjs')
 
 // ========== 状态 ==========
 let mainWindow = null
