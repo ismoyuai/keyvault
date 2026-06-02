@@ -10,7 +10,7 @@ if (!gotLock) { app.quit() }
 // ========== 核心模块 ==========
 const { deriveKey, hashPassword, verifyPassword, extractSalt } = require('./crypto/key-derivation.cjs')
 const { encryptField, decryptField, zeroBuffer } = require('./crypto/encryption.cjs')
-const { initDatabase, closeDatabase, addEntry, getEntry, updateEntry, deleteEntry,
+const { initDatabase, closeDatabase, addEntry, addEntries, getEntry, updateEntry, deleteEntry,
         listEntries, searchEntries, exportEncrypted, importEncrypted,
         addGroup, listGroups, deleteGroup, getSetting, setSetting,
         hasImported, logImport } = require('./storage/database.cjs')
@@ -249,13 +249,10 @@ ipcMain.handle('import:browser-csv', wrapIPC(async (event, filePath) => {
   if (hasImported(hash)) throw new Error('此文件已导入过')
   const { entries, format } = parseBrowserCSV(content)
   const deduplicated = deduplicateEntries(entries)
-  let imported = 0
-  for (const entry of deduplicated) {
-    addEntry({ ...entry, device_id: getDeviceIdSafe() }, encryptionKey)
-    imported++
-  }
-  logImport(format, hash, imported)
-  return { imported, total: entries.length, format }
+  const entriesWithDevice = deduplicated.map(e => ({ ...e, device_id: getDeviceIdSafe() }))
+  const ids = addEntries(entriesWithDevice, encryptionKey)
+  logImport(format, hash, ids.length)
+  return { imported: ids.length, total: entries.length, format }
 }))
 
 ipcMain.handle('import:text', wrapIPC(async (event, content) => {
