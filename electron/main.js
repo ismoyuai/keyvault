@@ -8,8 +8,8 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit() }
 
 // ========== 核心模块 ==========
-const { deriveKey, hashPassword, verifyPassword, extractSalt, zeroBuffer } = require('../src/crypto/key-derivation.cjs')
-const { encryptField, decryptField } = require('../src/crypto/encryption.cjs')
+const { deriveKey, hashPassword, verifyPassword, extractSalt } = require('../src/crypto/key-derivation.cjs')
+const { encryptField, decryptField, zeroBuffer } = require('../src/crypto/encryption.cjs')
 const { initDatabase, closeDatabase, addEntry, getEntry, updateEntry, deleteEntry,
         listEntries, searchEntries, exportEncrypted, importEncrypted,
         addGroup, listGroups, deleteGroup, getSetting, setSetting,
