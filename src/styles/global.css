@@ -1,0 +1,56 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: #0f0f0f;
+  color: #e0e0e0;
+}
+
+:root {
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #252525;
+  --bg-hover: #2a2a2a;
+  --text-primary: #e0e0e0;
+  --text-secondary: #888;
+  --accent: #409eff;
+  --accent-hover: #66b1ff;
+  --danger: #f56c6c;
+  --success: #67c23a;
+  --border: #333;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Element Plus 暗色覆盖 */
+.el-input__wrapper {
+  background: var(--bg-tertiary) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+.el-input__inner {
+  color: var(--text-primary) !important;
+}
+.el-button--primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}

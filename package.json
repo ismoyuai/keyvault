@@ -1,0 +1,59 @@
+{
+  "name": "keyvault",
+  "version": "1.0.0",
+  "description": "本地加密密码与API Key管理器 - AES-256-GCM + Argon2id",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "start": "node scripts/start.cjs",
+    "package": "vite build && electron-builder --win"
+  },
+  "keywords": [
+    "password",
+    "manager",
+    "encryption",
+    "api-key"
+  ],
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.keyvault.app",
+    "productName": "KeyVault",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "dependencies": {
+    "argon2": "^0.41.0",
+    "papaparse": "^5.5.0",
+    "uuid": "^11.0.0",
+    "webdav": "^5.8.0",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "electron": "^42.0.0",
+    "element-plus": "^2.9.0",
+    "vite": "^6.0.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  }
+}
