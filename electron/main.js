@@ -27,6 +27,25 @@ let dbInstance = null
 let dbPath = null
 let storedPasswordHash = null
 
+// ========== WebDAV 凭据加密 ==========
+function encryptWebDAVCredentials(webdavConfig) {
+  if (!encryptionKey || !webdavConfig) return webdavConfig
+  return {
+    url: webdavConfig.url, // URL not encrypted (not sensitive)
+    username: encryptField(webdavConfig.username, encryptionKey),
+    password: encryptField(webdavConfig.password, encryptionKey),
+  }
+}
+
+function decryptWebDAVCredentials(encryptedConfig) {
+  if (!encryptionKey || !encryptedConfig) return encryptedConfig
+  return {
+    url: encryptedConfig.url,
+    username: decryptField(encryptedConfig.username, encryptionKey),
+    password: decryptField(encryptedConfig.password, encryptionKey),
+  }
+}
+
 // ========== 数据目录 ==========
 function getDataDir() {
   const dir = path.join(app.getPath('userData'), 'data')
@@ -225,8 +244,9 @@ ipcMain.handle('import:text', async (event, content) => {
 
 // --- Sync ---
 ipcMain.handle('sync:configure', (event, config) => {
+  if (!encryptionKey) throw new Error('未解锁')
   const appConfig = loadConfig()
-  appConfig.webdav = config
+  appConfig.webdav = encryptWebDAVCredentials(config)
   saveConfig(appConfig)
   return { success: true }
 })
@@ -235,7 +255,8 @@ ipcMain.handle('sync:push', async () => {
   if (!encryptionKey) throw new Error('未解锁')
   const config = loadConfig()
   if (!config.webdav) throw new Error('请先配置 WebDAV')
-  createWebDAVClient(config.webdav)
+  const webdavConfig = decryptWebDAVCredentials(config.webdav)
+  createWebDAVClient(webdavConfig)
   const data = exportEncrypted()
   return await push(data, getDeviceIdSafe())
 })
@@ -244,7 +265,8 @@ ipcMain.handle('sync:pull', async () => {
   if (!encryptionKey) throw new Error('未解锁')
   const config = loadConfig()
   if (!config.webdav) throw new Error('请先配置 WebDAV')
-  createWebDAVClient(config.webdav)
+  const webdavConfig = decryptWebDAVCredentials(config.webdav)
+  createWebDAVClient(webdavConfig)
   const result = await pull()
   if (result.data) importEncrypted(result.data)
   return result
@@ -253,10 +275,12 @@ ipcMain.handle('sync:pull', async () => {
 ipcMain.handle('sync:test', async (event, config) => await testConnection(config))
 
 ipcMain.handle('sync:status', async () => {
+  if (!encryptionKey) return { configured: false }
   const config = loadConfig()
   if (!config.webdav) return { configured: false }
   try {
-    createWebDAVClient(config.webdav)
+    const webdavConfig = decryptWebDAVCredentials(config.webdav)
+    createWebDAVClient(webdavConfig)
     return { configured: true, ...(await getStatus()) }
   } catch (e) {
     return { configured: true, error: e.message }
@@ -273,7 +297,7 @@ ipcMain.handle('settings:get', () => {
     autoLockMinutes: config.autoLockMinutes || 15,
     clipboardClearSeconds: config.clipboardClearSeconds || 30,
     theme: config.theme || 'dark',
-    webdav: config.webdav || null,
+    webdav: config.webdav ? { configured: true, url: config.webdav.url } : null,
   }
 })
 
