@@ -211,11 +211,15 @@ onMounted(async () => {
   } catch {}
 })
 
-watch(() => route.query, () => {
-  if (route.query.group) {
-    entriesStore.loadEntries({ group_id: route.query.group })
+watch(() => route.query, (query) => {
+  if (query.group) {
+    entriesStore.loadEntries({ group_id: query.group })
+  } else if (query.favorites) {
+    entriesStore.loadEntries({ favorites: true })
+  } else {
+    entriesStore.loadEntries()
   }
-})
+}, { immediate: true })
 
 function setFilter(key) {
   activeFilter.value = key
