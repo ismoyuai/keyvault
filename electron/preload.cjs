@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld('keyvault', {
     maximize: async () => unwrap(await ipcRenderer.invoke('window:maximize')),
     close: async () => unwrap(await ipcRenderer.invoke('window:close')),
   },
+  audit: {
+    passwords: async () => {
+      const result = await ipcRenderer.invoke('audit:passwords')
+      if (!result.success) throw new Error(result.error)
+      return result.data
+    },
+  },
   dialog: {
     openFile: async (options) => unwrap(await ipcRenderer.invoke('dialog:open-file', options)),
   },

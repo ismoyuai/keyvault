@@ -160,6 +160,66 @@ function wrapIPC(handler) {
   }
 }
 
+// ========== 密码强度审计 ==========
+function evaluatePasswordStrength(password) {
+  if (!password) return { score: 0, level: 'weak' }
+  let s = 0
+  if (password.length >= 8) s++
+  if (password.length >= 12) s++
+  if (password.length >= 16) s++
+  if (/[a-z]/.test(password)) s++
+  if (/[A-Z]/.test(password)) s++
+  if (/[0-9]/.test(password)) s++
+  if (/[^a-zA-Z0-9]/.test(password)) s++
+  if (new Set(password).size >= 8) s++
+
+  if (s < 3) return { score: s, level: 'weak' }
+  if (s < 5) return { score: s, level: 'fair' }
+  if (s < 7) return { score: s, level: 'good' }
+  return { score: s, level: 'strong' }
+}
+
+function auditPasswords() {
+  if (!encryptionKey) throw new Error('未解锁')
+  const entries = listEntries(encryptionKey, {})
+  const weak = []
+  const duplicateMap = new Map()
+  const old = []
+  const now = Date.now()
+  const ninetyDays = 90 * 24 * 60 * 60 * 1000
+
+  for (const entry of entries) {
+    const strength = evaluatePasswordStrength(entry.password)
+    if (strength.level === 'weak' || strength.level === 'fair') {
+      weak.push({ id: entry.id, title: entry.title, reason: `密码强度: ${strength.level}` })
+    }
+
+    if (entry.password) {
+      if (!duplicateMap.has(entry.password)) {
+        duplicateMap.set(entry.password, [])
+      }
+      duplicateMap.get(entry.password).push({ id: entry.id, title: entry.title })
+    }
+
+    const updatedAt = new Date(entry.updated_at).getTime()
+    if (now - updatedAt > ninetyDays) {
+      old.push({ id: entry.id, title: entry.title, lastUpdated: entry.updated_at })
+    }
+  }
+
+  const duplicate = []
+  for (const [_, group] of duplicateMap) {
+    if (group.length > 1) {
+      duplicate.push({ ids: group.map(e => e.id), titles: group.map(e => e.title) })
+    }
+  }
+
+  const totalIssues = weak.length + duplicate.length + old.length
+  const score = Math.max(0, 100 - totalIssues * 5)
+
+  return { weak, duplicate, old, score, totalEntries: entries.length }
+}
+
 // ========== IPC Handlers ==========
 
 // --- Auth ---
@@ -329,6 +389,9 @@ ipcMain.handle('sync:status', wrapIPC(async () => {
     return { configured: true, error: e.message }
   }
 }))
+
+// --- Audit ---
+ipcMain.handle('audit:passwords', wrapIPC(() => auditPasswords()))
 
 // --- Clipboard ---
 ipcMain.handle('clipboard:copy', wrapIPC((event, text) => { clipboard.writeText(text); return true }))
