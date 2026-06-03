@@ -36,7 +36,6 @@ import { useGroupsStore } from '@/stores/groups'
 import { useEntriesStore } from '@/stores/entries'
 import Sidebar from '@/components/Sidebar.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
-import { Shield, Minus, Square, X } from 'lucide-vue-next'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 const router = useRouter()
