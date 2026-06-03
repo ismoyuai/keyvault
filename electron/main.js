@@ -527,20 +527,24 @@ function startNativeMessagingServer() {
   }
 
   nativeMessagingServer = net.createServer((socket) => {
-    let buffer = Buffer.alloc(0)
+    console.log('[NativeMessaging] Client connected')
+    let socketBuffer = Buffer.alloc(0)
 
     socket.on('data', (chunk) => {
-      buffer = Buffer.concat([buffer, chunk])
+      socketBuffer = Buffer.concat([socketBuffer, chunk])
 
       // 处理所有完整消息
-      while (buffer.length >= 4) {
-        const messageLength = buffer.readUInt32LE(0)
-        if (buffer.length >= 4 + messageLength) {
-          const messageData = buffer.slice(4, 4 + messageLength)
-          buffer = buffer.slice(4 + messageLength)
+      while (socketBuffer.length >= 4) {
+        const messageLength = socketBuffer.readUInt32LE(0)
+        if (socketBuffer.length >= 4 + messageLength) {
+          const messageData = socketBuffer.slice(4, 4 + messageLength)
+          socketBuffer = socketBuffer.slice(4 + messageLength)
+
+          const requestStr = messageData.toString('utf8')
+          console.log('[NativeMessaging] Received request:', requestStr.substring(0, 200))
 
           // 异步处理请求
-          handleNativeMessagingRequest(messageData.toString('utf8'))
+          handleNativeMessagingRequest(requestStr)
             .then((response) => {
               const responseJson = JSON.stringify(response)
               const responseBuffer = Buffer.from(responseJson, 'utf8')
@@ -548,8 +552,10 @@ function startNativeMessagingServer() {
               lengthBuffer.writeUInt32LE(responseBuffer.length, 0)
               socket.write(lengthBuffer)
               socket.write(responseBuffer)
+              console.log('[NativeMessaging] Sent response')
             })
             .catch((err) => {
+              console.error('[NativeMessaging] Error handling request:', err.message)
               const errorResponse = JSON.stringify({
                 success: false,
                 error: { code: 'INTERNAL_ERROR', message: err.message }
@@ -572,11 +578,11 @@ function startNativeMessagingServer() {
   })
 
   nativeMessagingServer.listen(SOCKET_PATH, () => {
-    console.log('Native messaging server listening on', SOCKET_PATH)
+    console.log('[NativeMessaging] Server listening on', SOCKET_PATH)
   })
 
   nativeMessagingServer.on('error', (err) => {
-    console.error('Native messaging server error:', err.message)
+    console.error('[NativeMessaging] Server error:', err.message)
   })
 }
 

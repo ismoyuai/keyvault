@@ -9,24 +9,38 @@
  *
  * 设计原则：
  * - 此模块不直接访问数据库或解密数据
- * - 通过 Unix Socket/Named Pipe 与主进程通信
+ * - 通过 Named Pipe 与主进程通信
  * - 主进程负责所有加密/解密操作
  */
 
 const net = require('net')
-const path = require('path')
 
 // 配置
-const TIMEOUT_MS = 10000
+const TIMEOUT_MS = 30000  // 增加超时时间到 30 秒
 const SOCKET_PATH = process.platform === 'win32'
   ? '\\\\.\\pipe\\keyvault-native-messaging'
   : '/tmp/keyvault-native-messaging.sock'
+
+// 日志文件（调试用）
+const LOG_PATH = process.platform === 'win32'
+  ? `${process.env.APPDATA || process.env.USERPROFILE}\\keyvault-host.log`
+  : '/tmp/keyvault-host.log'
 
 // 状态
 let socket = null
 let connected = false
 let pendingRequests = new Map()
 let requestId = 0
+let buffer = Buffer.alloc(0)
+
+/**
+ * 写入日志
+ */
+function log(msg) {
+  const fs = require('fs')
+  const timestamp = new Date().toISOString()
+  fs.appendFileSync(LOG_PATH, `[${timestamp}] ${msg}\n`)
+}
 
 /**
  * 读取 Native Messaging 消息
@@ -52,13 +66,13 @@ function readMessage() {
       totalLength += chunk.length
 
       if (totalLength >= 4) {
-        const buffer = Buffer.concat(chunks)
-        const messageLength = buffer.readUInt32LE(0)
+        const buf = Buffer.concat(chunks)
+        const messageLength = buf.readUInt32LE(0)
 
-        if (buffer.length >= 4 + messageLength) {
+        if (buf.length >= 4 + messageLength) {
           resolved = true
           cleanup()
-          const message = buffer.slice(4, 4 + messageLength).toString('utf8')
+          const message = buf.slice(4, 4 + messageLength).toString('utf8')
           try {
             resolve(JSON.parse(message))
           } catch (e) {
@@ -101,19 +115,24 @@ function readMessage() {
  * 发送 Native Messaging 消息到浏览器
  */
 function sendMessage(response) {
-  const json = JSON.stringify(response)
-  const buffer = Buffer.from(json, 'utf8')
-  const lengthBuffer = Buffer.alloc(4)
-  lengthBuffer.writeUInt32LE(buffer.length, 0)
+  try {
+    const json = JSON.stringify(response)
+    const buffer = Buffer.from(json, 'utf8')
+    const lengthBuffer = Buffer.alloc(4)
+    lengthBuffer.writeUInt32LE(buffer.length, 0)
 
-  process.stdout.write(lengthBuffer)
-  process.stdout.write(buffer)
+    process.stdout.write(lengthBuffer)
+    process.stdout.write(buffer)
+  } catch (e) {
+    log('sendMessage error: ' + e.message)
+  }
 }
 
 /**
  * 发送错误响应
  */
 function sendError(code, message) {
+  log('sendError: ' + code + ' - ' + message)
   sendMessage({
     success: false,
     error: { code, message }
@@ -135,36 +154,73 @@ function sendSuccess(data) {
  */
 function connectToMainProcess() {
   return new Promise((resolve, reject) => {
-    if (socket && !socket.destroyed) {
+    if (socket && !socket.destroyed && connected) {
       resolve(socket)
       return
     }
 
-    socket = net.createConnection(SOCKET_PATH)
+    log('Connecting to main process at ' + SOCKET_PATH)
 
-    socket.on('connect', () => {
-      connected = true
-      resolve(socket)
-    })
+    try {
+      socket = net.createConnection(SOCKET_PATH)
 
-    socket.on('error', (err) => {
-      if (err.code === 'ECONNREFUSED') {
-        reject(new Error('KeyVault app is not running. Please start the app first.'))
+      socket.on('connect', () => {
+        connected = true
+        log('Connected to main process')
+        setupSocketListener()
+        resolve(socket)
+      })
+
+      socket.on('error', (err) => {
+        log('Socket error: ' + err.message + ' (code: ' + err.code + ')')
+        connected = false
+        socket = null
+
+        if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT') {
+          reject(new Error('KeyVault app is not running. Please start the app first.'))
+        } else {
+          reject(err)
+        }
+      })
+
+      socket.on('close', () => {
+        log('Socket closed')
+        connected = false
+        socket = null
+      })
+
+      // 设置超时
+      socket.setTimeout(TIMEOUT_MS, () => {
+        log('Socket timeout')
+        if (socket) socket.destroy()
+        reject(new Error('Connection to main process timed out'))
+      })
+    } catch (e) {
+      log('createConnection error: ' + e.message)
+      reject(e)
+    }
+  })
+}
+
+/**
+ * 设置 Socket 监听器（接收主进程响应）
+ */
+function setupSocketListener() {
+  if (!socket) return
+
+  socket.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk])
+
+    while (buffer.length >= 4) {
+      const messageLength = buffer.readUInt32LE(0)
+      if (buffer.length >= 4 + messageLength) {
+        const messageData = buffer.slice(4, 4 + messageLength)
+        buffer = buffer.slice(4 + messageLength)
+        handleMainProcessResponse(messageData)
       } else {
-        reject(err)
+        break
       }
-    })
-
-    socket.on('close', () => {
-      connected = false
-      socket = null
-    })
-
-    // 设置超时
-    socket.setTimeout(TIMEOUT_MS, () => {
-      socket.destroy()
-      reject(new Error('Connection to main process timed out'))
-    })
+    }
   })
 }
 
@@ -178,19 +234,26 @@ async function sendToMainProcess(request) {
     const id = ++requestId
     const timeout = setTimeout(() => {
       pendingRequests.delete(id)
-      reject(new Error('Request timed out'))
+      reject(new Error('Request to main process timed out'))
     }, TIMEOUT_MS)
 
     pendingRequests.set(id, { resolve, reject, timeout })
 
     // 发送请求（带 ID 用于匹配响应）
     const message = JSON.stringify({ ...request, _id: id })
-    const buffer = Buffer.from(message, 'utf8')
+    const msgBuffer = Buffer.from(message, 'utf8')
     const lengthBuffer = Buffer.alloc(4)
-    lengthBuffer.writeUInt32LE(buffer.length, 0)
+    lengthBuffer.writeUInt32LE(msgBuffer.length, 0)
 
-    sock.write(lengthBuffer)
-    sock.write(buffer)
+    try {
+      sock.write(lengthBuffer)
+      sock.write(msgBuffer)
+      log('Sent request to main process: ' + request.type + '/' + request.action)
+    } catch (e) {
+      clearTimeout(timeout)
+      pendingRequests.delete(id)
+      reject(new Error('Failed to send request: ' + e.message))
+    }
   })
 }
 
@@ -202,44 +265,21 @@ function handleMainProcessResponse(data) {
     const response = JSON.parse(data.toString('utf8'))
     const { _id, ...rest } = response
 
+    log('Received response from main process, id=' + _id)
+
     if (_id && pendingRequests.has(_id)) {
-      const { resolve, timeout } = pendingRequests.get(_id)
+      const { resolve, reject, timeout } = pendingRequests.get(_id)
       clearTimeout(timeout)
       pendingRequests.delete(_id)
-      resolve(rest)
+
+      if (rest.success === false) {
+        reject(new Error(rest.error?.message || 'Main process error'))
+      } else {
+        resolve(rest)
+      }
     }
   } catch (e) {
-    // 忽略解析错误
-  }
-}
-
-/**
- * 初始化主进程连接并设置响应监听
- */
-async function initMainProcessConnection() {
-  try {
-    const sock = await connectToMainProcess()
-
-    // 监听主进程响应
-    let buffer = Buffer.alloc(0)
-    sock.on('data', (chunk) => {
-      buffer = Buffer.concat([buffer, chunk])
-
-      while (buffer.length >= 4) {
-        const messageLength = buffer.readUInt32LE(0)
-        if (buffer.length >= 4 + messageLength) {
-          const messageData = buffer.slice(4, 4 + messageLength)
-          buffer = buffer.slice(4 + messageLength)
-          handleMainProcessResponse(messageData)
-        } else {
-          break
-        }
-      }
-    })
-
-    return true
-  } catch (error) {
-    return false
+    log('handleMainProcessResponse error: ' + e.message)
   }
 }
 
@@ -291,6 +331,8 @@ async function handleAuth(request) {
 async function handleMessage(message) {
   const { type, ...rest } = message
 
+  log('handleMessage: ' + type)
+
   switch (type) {
     case 'auth':
       await handleAuth(rest)
@@ -320,26 +362,38 @@ async function handleMessage(message) {
  * 主函数
  */
 async function main() {
+  log('=== Native Messaging Host Started ===')
+  log('Platform: ' + process.platform)
+  log('Socket path: ' + SOCKET_PATH)
+  log('Node version: ' + process.version)
+
   // 设置二进制模式
   process.stdin.setEncoding(null)
   process.stdout.setEncoding(null)
 
   // 初始化与主进程的连接
-  const connected = await initMainProcessConnection()
-  if (!connected) {
-    sendError('CONNECTION_ERROR', 'Failed to connect to KeyVault app. Please ensure the app is running.')
+  try {
+    await connectToMainProcess()
+    log('Connected to main process successfully')
+  } catch (error) {
+    log('Failed to connect to main process: ' + error.message)
+    sendError('CONNECTION_ERROR', error.message)
     process.exit(1)
+    return
   }
 
   // 消息循环
   while (true) {
     try {
       const message = await readMessage()
+      log('Received message from browser: ' + message.type)
       await handleMessage(message)
     } catch (error) {
       if (error.message === 'Connection closed' || error.message === 'Connection timeout') {
+        log('Connection ended: ' + error.message)
         process.exit(0)
       }
+      log('Error in message loop: ' + error.message)
       sendError('INTERNAL_ERROR', error.message)
     }
   }
@@ -347,6 +401,7 @@ async function main() {
 
 // 启动
 main().catch((error) => {
+  log('Fatal error: ' + error.message)
   sendError('STARTUP_ERROR', error.message)
   process.exit(1)
 })
