@@ -19,6 +19,7 @@ const { createWebDAVClient, testConnection } = require('./sync/webdav-client.cjs
 const { push, pull, getStatus, mergeEntries } = require('./sync/sync-engine.cjs')
 const { parseBrowserCSV, deduplicateEntries } = require('./import/browser-csv.cjs')
 const { parseTextContent } = require('./import/text-parser.cjs')
+const { createTray } = require('./tray.cjs')
 
 // ========== 状态 ==========
 let mainWindow = null
@@ -106,6 +107,17 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('focus', () => mainWindow.webContents.send('window:focus'))
   mainWindow.on('blur', () => mainWindow.webContents.send('window:blur'))
+
+  // System tray
+  createTray(mainWindow, lockApp)
+
+  // Minimize to tray instead of closing
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault()
+      mainWindow.hide()
+    }
+  })
 }
 
 app.whenReady().then(() => {
@@ -131,6 +143,10 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(false)
   })
+})
+
+app.on('before-quit', () => {
+  app.isQuitting = true
 })
 
 app.on('window-all-closed', () => { lockApp(); app.quit() })
