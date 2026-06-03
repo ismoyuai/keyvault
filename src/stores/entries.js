@@ -21,7 +21,18 @@ export const useEntriesStore = defineStore('entries', () => {
   }
 
   async function addEntry(data) {
-    const id = await window.keyvault.entries.add(data)
+    const id = await window.keyvault.entries.add({
+      type: data.type || 'password',
+      template_id: data.template_id || data.type || 'password',
+      title: data.title,
+      username: data.username || '',
+      password: data.password || '',
+      url: data.url || '',
+      notes: data.notes || '',
+      group_id: data.group_id || 'default',
+      tags: data.tags || [],
+      custom_fields: data.custom_fields || null,
+    })
     await loadEntries()
     return id
   }
