@@ -122,6 +122,90 @@ describe('database.cjs', () => {
     })
   })
 
+  describe('template fields', () => {
+    it('should addEntry with template_id and custom_fields', () => {
+      const id = addEntry({
+        type: 'password',
+        template_id: 'server',
+        title: 'My Server',
+        username: 'root',
+        password: 'secret',
+        url: '',
+        notes: '',
+        custom_fields: { fields: [
+          { key: 'host', label: 'Host', value: '192.168.1.1', type: 'text' },
+          { key: 'port', label: 'Port', value: '22', type: 'text' },
+        ]},
+        device_id: 'test',
+      }, testKey)
+
+      const entry = getEntry(id, testKey)
+      expect(entry.template_id).toBe('server')
+      expect(entry.custom_fields.fields).toHaveLength(2)
+      expect(entry.custom_fields.fields[0].value).toBe('192.168.1.1')
+    })
+
+    it('should updateEntry custom_fields', () => {
+      const id = addEntry({
+        title: 'Server', password: 'p',
+        custom_fields: { fields: [{ key: 'a', label: 'A', value: '1', type: 'text' }] },
+      }, testKey)
+
+      updateEntry(id, {
+        custom_fields: { fields: [
+          { key: 'a', label: 'A', value: '10', type: 'text' },
+          { key: 'b', label: 'B', value: '20', type: 'text' },
+        ]},
+      }, testKey)
+
+      const entry = getEntry(id, testKey)
+      expect(entry.custom_fields.fields).toHaveLength(2)
+      expect(entry.custom_fields.fields[0].value).toBe('10')
+      expect(entry.custom_fields.fields[1].value).toBe('20')
+    })
+
+    it('should updateLastAccessed', () => {
+      const { updateLastAccessed } = require('../database.cjs')
+      const id = addEntry({ title: 'Test', password: 'p' }, testKey)
+
+      // Should not throw
+      expect(() => updateLastAccessed(id)).not.toThrow()
+    })
+
+    it('should include last_accessed_at in getEntry', () => {
+      const id = addEntry({ title: 'Test', password: 'p' }, testKey)
+      const entry = getEntry(id, testKey)
+      // last_accessed_at may be null initially
+      expect('last_accessed_at' in entry).toBe(true)
+    })
+
+    it('should default template_id and custom_fields to empty', () => {
+      const id = addEntry({ title: 'Simple', password: 'p' }, testKey)
+      const entry = getEntry(id, testKey)
+      expect(entry.template_id).toBe('')
+      expect(entry.custom_fields).toEqual({ fields: [] })
+    })
+
+    it('should batch insert with template_id and custom_fields', () => {
+      const ids = addEntries([
+        {
+          title: 'S1', password: 'p1', template_id: 'server',
+          custom_fields: { fields: [{ key: 'ip', label: 'IP', value: '10.0.0.1', type: 'text' }] },
+        },
+        { title: 'S2', password: 'p2' },
+      ], testKey)
+      expect(ids.length).toBe(2)
+
+      const e1 = getEntry(ids[0], testKey)
+      expect(e1.template_id).toBe('server')
+      expect(e1.custom_fields.fields[0].value).toBe('10.0.0.1')
+
+      const e2 = getEntry(ids[1], testKey)
+      expect(e2.template_id).toBe('')
+      expect(e2.custom_fields).toEqual({ fields: [] })
+    })
+  })
+
   describe('purgeDeleted', () => {
     it('should not throw when purging', () => {
       const id = addEntry({ title: 'Old', password: 'p' }, testKey)

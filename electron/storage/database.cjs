@@ -47,6 +47,18 @@ async function initDatabase(filePath) {
   `)
   db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 
+  // Migrations: add new columns if missing
+  const columns = queryAll("PRAGMA table_info(entries)").map(c => c.name)
+  if (!columns.includes('template_id')) {
+    db.run("ALTER TABLE entries ADD COLUMN template_id TEXT DEFAULT ''")
+  }
+  if (!columns.includes('custom_fields_encrypted')) {
+    db.run("ALTER TABLE entries ADD COLUMN custom_fields_encrypted TEXT")
+  }
+  if (!columns.includes('last_accessed_at')) {
+    db.run("ALTER TABLE entries ADD COLUMN last_accessed_at TEXT")
+  }
+
   db.run('CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(type)')
   db.run('CREATE INDEX IF NOT EXISTS idx_entries_group ON entries(group_id)')
   db.run('CREATE INDEX IF NOT EXISTS idx_entries_favorite ON entries(favorite)')
@@ -95,8 +107,9 @@ function addEntry(data, key) {
   db.run(
     `INSERT INTO entries (id, type, title_encrypted, username_encrypted, password_encrypted,
      url_encrypted, notes_encrypted, group_id, tags_encrypted, favorite,
-     created_at, updated_at, device_id, deleted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     created_at, updated_at, device_id, deleted,
+     template_id, custom_fields_encrypted, last_accessed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, data.type || 'password',
      encryptField(data.title, key),
      encryptField(data.username, key),
@@ -106,7 +119,10 @@ function addEntry(data, key) {
      data.group_id || 'default',
      encryptField(JSON.stringify(data.tags || []), key),
      data.favorite ? 1 : 0,
-     now, now, data.device_id || 'unknown', 0]
+     now, now, data.device_id || 'unknown', 0,
+     data.template_id || '',
+     encryptField(JSON.stringify(data.custom_fields || { fields: [] }), key),
+     null]
   )
   saveDb()
   return id
@@ -130,6 +146,7 @@ function updateEntry(id, data, key) {
   if (data.group_id !== undefined) { sets.push('group_id = ?'); params.push(data.group_id) }
   if (data.tags !== undefined) { sets.push('tags_encrypted = ?'); params.push(encryptField(JSON.stringify(data.tags), key)) }
   if (data.favorite !== undefined) { sets.push('favorite = ?'); params.push(data.favorite ? 1 : 0) }
+  if (data.custom_fields !== undefined) { sets.push('custom_fields_encrypted = ?'); params.push(encryptField(JSON.stringify(data.custom_fields), key)) }
 
   sets.push('updated_at = ?')
   params.push(now)
@@ -212,11 +229,18 @@ function decryptRow(row, key) {
       favorite: row.favorite === 1,
       created_at: row.created_at, updated_at: row.updated_at,
       device_id: row.device_id,
+      template_id: row.template_id || '',
+      custom_fields: row.custom_fields_encrypted
+        ? JSON.parse(decryptField(row.custom_fields_encrypted, key) || '{"fields":[]}')
+        : { fields: [] },
+      last_accessed_at: row.last_accessed_at || null,
     }
   } catch {
     return { id: row.id, type: row.type, title: '[解密失败]', username: '', password: '',
       url: '', notes: '', group_id: row.group_id, tags: [], favorite: false,
-      created_at: row.created_at, updated_at: row.updated_at, device_id: row.device_id }
+      created_at: row.created_at, updated_at: row.updated_at, device_id: row.device_id,
+      template_id: row.template_id || '', custom_fields: { fields: [] },
+      last_accessed_at: row.last_accessed_at || null }
   }
 }
 
@@ -283,8 +307,9 @@ function addEntries(dataArray, key) {
       db.run(
         `INSERT INTO entries (id, type, title_encrypted, username_encrypted, password_encrypted,
          url_encrypted, notes_encrypted, group_id, tags_encrypted, favorite,
-         created_at, updated_at, device_id, deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         created_at, updated_at, device_id, deleted,
+         template_id, custom_fields_encrypted, last_accessed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, data.type || 'password',
          encryptField(data.title, key),
          encryptField(data.username, key),
@@ -294,7 +319,10 @@ function addEntries(dataArray, key) {
          data.group_id || 'default',
          encryptField(JSON.stringify(data.tags || []), key),
          data.favorite ? 1 : 0,
-         now, now, data.device_id || 'unknown', 0]
+         now, now, data.device_id || 'unknown', 0,
+         data.template_id || '',
+         encryptField(JSON.stringify(data.custom_fields || { fields: [] }), key),
+         null]
       )
       ids.push(id)
     }
@@ -313,9 +341,15 @@ function purgeDeleted(olderThanDays = 30) {
   saveDb()
 }
 
+function updateLastAccessed(id) {
+  const now = new Date().toISOString()
+  db.run('UPDATE entries SET last_accessed_at = ? WHERE id = ?', [now, id])
+  saveDb()
+}
+
 module.exports = {
   initDatabase, closeDatabase, addEntry, addEntries, getEntry, updateEntry, deleteEntry,
   listEntries, searchEntries, exportEncrypted, importEncrypted,
   addGroup, listGroups, deleteGroup, getSetting, setSetting, hasImported, logImport,
-  beginTransaction, commit, rollback, purgeDeleted
+  beginTransaction, commit, rollback, purgeDeleted, updateLastAccessed
 }
