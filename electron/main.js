@@ -131,6 +131,9 @@ app.whenReady().then(() => {
   const config = loadConfig()
   storedPasswordHash = config.passwordHash || null
 
+  // 启动 Native Messaging Socket 服务器
+  startNativeMessagingServer()
+
   // ========== Content Security Policy ==========
   const { session } = require('electron')
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -154,7 +157,7 @@ app.on('before-quit', () => {
   app.isQuitting = true
 })
 
-app.on('window-all-closed', () => { lockApp(); app.quit() })
+app.on('window-all-closed', () => { stopNativeMessagingServer(); lockApp(); app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 
 function lockApp() {
@@ -446,9 +449,18 @@ nativeTheme.on('updated', () => {
 })
 
 // --- Native Messaging ---
+// 获取 native-messaging 脚本路径（打包后在 extraResources 中）
+function getNativeMessagingScript() {
+  const isPackaged = app.isPackaged
+  if (isPackaged) {
+    return path.join(process.resourcesPath, 'native-messaging', 'register-host.cjs')
+  }
+  return path.join(__dirname, 'native-messaging', 'register-host.cjs')
+}
+
 ipcMain.handle('native-messaging:register', wrapIPC((event, extensionId) => {
   const { execSync } = require('child_process')
-  const registerScript = path.join(__dirname, 'native-messaging', 'register-host.cjs')
+  const registerScript = getNativeMessagingScript()
   try {
     const idArg = extensionId ? ` "${extensionId}"` : ''
     execSync(`node "${registerScript}" register${idArg}`, { stdio: 'pipe' })
@@ -460,7 +472,7 @@ ipcMain.handle('native-messaging:register', wrapIPC((event, extensionId) => {
 
 ipcMain.handle('native-messaging:unregister', wrapIPC(() => {
   const { execSync } = require('child_process')
-  const registerScript = path.join(__dirname, 'native-messaging', 'register-host.cjs')
+  const registerScript = getNativeMessagingScript()
   try {
     execSync(`node "${registerScript}" unregister`, { stdio: 'pipe' })
     return { success: true }
@@ -498,6 +510,198 @@ ipcMain.handle('native-messaging:status', wrapIPC(() => {
 
   return { chromeRegistered, firefoxRegistered }
 }))
+
+// ========== Native Messaging Socket Server ==========
+// 处理来自 host.cjs 的请求（浏览器扩展通过 host.cjs 转发）
+const net = require('net')
+const SOCKET_PATH = process.platform === 'win32'
+  ? '\\\\.\\pipe\\keyvault-native-messaging'
+  : '/tmp/keyvault-native-messaging.sock'
+
+let nativeMessagingServer = null
+
+function startNativeMessagingServer() {
+  // 清理旧的 socket 文件（非 Windows）
+  if (process.platform !== 'win32' && fs.existsSync(SOCKET_PATH)) {
+    fs.unlinkSync(SOCKET_PATH)
+  }
+
+  nativeMessagingServer = net.createServer((socket) => {
+    let buffer = Buffer.alloc(0)
+
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk])
+
+      // 处理所有完整消息
+      while (buffer.length >= 4) {
+        const messageLength = buffer.readUInt32LE(0)
+        if (buffer.length >= 4 + messageLength) {
+          const messageData = buffer.slice(4, 4 + messageLength)
+          buffer = buffer.slice(4 + messageLength)
+
+          // 异步处理请求
+          handleNativeMessagingRequest(messageData.toString('utf8'))
+            .then((response) => {
+              const responseJson = JSON.stringify(response)
+              const responseBuffer = Buffer.from(responseJson, 'utf8')
+              const lengthBuffer = Buffer.alloc(4)
+              lengthBuffer.writeUInt32LE(responseBuffer.length, 0)
+              socket.write(lengthBuffer)
+              socket.write(responseBuffer)
+            })
+            .catch((err) => {
+              const errorResponse = JSON.stringify({
+                success: false,
+                error: { code: 'INTERNAL_ERROR', message: err.message }
+              })
+              const errorBuffer = Buffer.from(errorResponse, 'utf8')
+              const lengthBuffer = Buffer.alloc(4)
+              lengthBuffer.writeUInt32LE(errorBuffer.length, 0)
+              socket.write(lengthBuffer)
+              socket.write(errorBuffer)
+            })
+        } else {
+          break
+        }
+      }
+    })
+
+    socket.on('error', (err) => {
+      console.error('Native messaging socket error:', err.message)
+    })
+  })
+
+  nativeMessagingServer.listen(SOCKET_PATH, () => {
+    console.log('Native messaging server listening on', SOCKET_PATH)
+  })
+
+  nativeMessagingServer.on('error', (err) => {
+    console.error('Native messaging server error:', err.message)
+  })
+}
+
+async function handleNativeMessagingRequest(data) {
+  const request = JSON.parse(data)
+  const { type, action, _id, ...params } = request
+
+  // 检查是否已解锁
+  if (!encryptionKey) {
+    return { success: false, error: { code: 'LOCKED', message: 'App is locked' }, _id }
+  }
+
+  try {
+    let result
+
+    if (type === 'native-messaging' && action === 'query') {
+      result = await handleNativeQuery(params)
+    } else if (type === 'native-messaging' && action === 'auth') {
+      result = await handleNativeAuth(params)
+    } else {
+      return { success: false, error: { code: 'UNKNOWN_TYPE', message: `Unknown type: ${type}` }, _id }
+    }
+
+    return { success: true, data: result, _id }
+  } catch (error) {
+    return { success: false, error: { code: 'ERROR', message: error.message }, _id }
+  }
+}
+
+async function handleNativeQuery(params) {
+  const { action: queryAction, ...queryParams } = params
+
+  switch (queryAction) {
+    case 'search': {
+      // 查询所有未删除的条目并解密
+      const entries = listEntries({ deleted: false })
+      const decryptedEntries = entries.map(entry => decryptEntry(entry))
+      return { entries: decryptedEntries }
+    }
+
+    case 'get': {
+      const { id } = queryParams
+      if (!id) throw new Error('Entry ID is required')
+      const entry = getEntry(id)
+      if (!entry) throw new Error('Entry not found')
+      return { entry: decryptEntry(entry) }
+    }
+
+    case 'match': {
+      const { url: targetUrl } = queryParams
+      if (!targetUrl) throw new Error('URL is required')
+
+      // 提取域名
+      let domain
+      try {
+        const urlObj = new URL(targetUrl)
+        domain = urlObj.hostname
+      } catch {
+        domain = targetUrl
+      }
+
+      // 查询所有有 URL 的条目并解密匹配
+      const entries = listEntries({ deleted: false })
+      const matchedEntries = entries
+        .map(entry => decryptEntry(entry))
+        .filter(entry => {
+          if (!entry.url) return false
+          try {
+            const entryDomain = new URL(entry.url).hostname
+            return entryDomain === domain || domain.endsWith('.' + entryDomain) || entryDomain.endsWith('.' + domain)
+          } catch {
+            return entry.url.includes(domain)
+          }
+        })
+
+      return { entries: matchedEntries, domain }
+    }
+
+    default:
+      throw new Error(`Unknown query action: ${queryAction}`)
+  }
+}
+
+async function handleNativeAuth(params) {
+  const { action: authAction } = params
+
+  if (authAction === 'status') {
+    return {
+      unlocked: !!encryptionKey,
+      dbAccessible: !!dbInstance
+    }
+  }
+
+  throw new Error(`Unknown auth action: ${authAction}`)
+}
+
+function decryptEntry(entry) {
+  return {
+    id: entry.id,
+    type: entry.type,
+    title: decryptField(entry.title_encrypted, encryptionKey),
+    username: decryptField(entry.username_encrypted, encryptionKey),
+    password: decryptField(entry.password_encrypted, encryptionKey),
+    url: decryptField(entry.url_encrypted, encryptionKey),
+    notes: decryptField(entry.notes_encrypted, encryptionKey),
+    tags: entry.tags_encrypted ? decryptField(entry.tags_encrypted, encryptionKey) : [],
+    customFields: entry.custom_fields_encrypted ? decryptField(entry.custom_fields_encrypted, encryptionKey) : [],
+    templateId: entry.template_id,
+    favorite: entry.favorite,
+    createdAt: entry.created_at,
+    updatedAt: entry.updated_at,
+    lastAccessedAt: entry.last_accessed_at,
+  }
+}
+
+function stopNativeMessagingServer() {
+  if (nativeMessagingServer) {
+    nativeMessagingServer.close()
+    nativeMessagingServer = null
+  }
+  // 清理 socket 文件（非 Windows）
+  if (process.platform !== 'win32' && fs.existsSync(SOCKET_PATH)) {
+    fs.unlinkSync(SOCKET_PATH)
+  }
+}
 
 // --- Settings ---
 ipcMain.handle('settings:get', wrapIPC(() => {

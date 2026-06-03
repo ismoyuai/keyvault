@@ -56,8 +56,22 @@
           </span>
         </div>
       </div>
+      <div class="extension-id-input">
+        <label class="extension-label">Chrome 扩展 ID:</label>
+        <div class="extension-input-row">
+          <input
+            v-model="extensionId"
+            type="text"
+            placeholder="例如: hfggpchmjckfeolncfglbnmahkhkcmom"
+            class="extension-input"
+          />
+        </div>
+        <p class="extension-hint">
+          在 Chrome 地址栏输入 <code>chrome://extensions/</code> 查看扩展 ID
+        </p>
+      </div>
       <div class="extension-actions">
-        <button class="btn-primary" @click="registerNativeHost" :disabled="nativeLoading">
+        <button class="btn-primary" @click="registerNativeHost" :disabled="nativeLoading || !extensionId.trim()">
           {{ nativeLoading ? '处理中...' : '注册浏览器扩展' }}
         </button>
         <button class="btn-outline" @click="unregisterNativeHost" :disabled="nativeLoading">
@@ -111,6 +125,7 @@ const showChangePwd = ref(false)
 const pwdForm = ref({ old: '', new: '', confirm: '' })
 const nativeStatus = ref({ chromeRegistered: false, firefoxRegistered: false })
 const nativeLoading = ref(false)
+const extensionId = ref('hfggpchmjckfeolncfglbnmahkhkcmom')
 
 onMounted(async () => {
   const s = await window.keyvault.settings.get()
@@ -153,7 +168,7 @@ async function checkNativeStatus() {
 async function registerNativeHost() {
   nativeLoading.value = true
   try {
-    await window.keyvault.nativeMessaging.register()
+    await window.keyvault.nativeMessaging.register(extensionId.value.trim())
     await checkNativeStatus()
     ElMessage.success('浏览器扩展注册成功')
   } catch (e) {
@@ -241,6 +256,44 @@ async function unregisterNativeHost() {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+.extension-hint code {
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.extension-id-input {
+  margin-bottom: 16px;
+}
+.extension-label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.extension-input-row {
+  display: flex;
+  gap: 8px;
+}
+.extension-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: monospace;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+.extension-input:focus {
+  border-color: var(--accent);
+}
+.extension-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
 }
 .about-info { color: var(--text-secondary); font-size: 14px; line-height: 1.8; }
 </style>

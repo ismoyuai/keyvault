@@ -29,6 +29,20 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "electron/native-messaging/host.cjs",
+        "to": "native-messaging/host.cjs"
+      },
+      {
+        "from": "electron/native-messaging/register-host.cjs",
+        "to": "native-messaging/register-host.cjs"
+      },
+      {
+        "from": "electron/native-messaging/manifest.json",
+        "to": "native-messaging/manifest.json"
+      }
+    ],
     "win": {
       "target": [
         "nsis"
@@ -58,6 +72,7 @@
     "@vitejs/plugin-vue": "^5.0.0",
     "canvas": "^3.2.3",
     "electron": "^42.0.0",
+    "electron-builder": "^26.8.1",
     "vite": "^6.0.0",
     "vitest": "^4.1.8"
   }

@@ -7,21 +7,26 @@
  * 处理浏览器扩展的通信请求
  * 协议：Native Messaging (stdin/stdout, JSON)
  *
- * 注意：此模块从主进程接收解密后的数据，
- * 不自行解密——加密/解密仅在主进程完成（安全红线）。
+ * 设计原则：
+ * - 此模块不直接访问数据库或解密数据
+ * - 通过 Unix Socket/Named Pipe 与主进程通信
+ * - 主进程负责所有加密/解密操作
  */
 
+const net = require('net')
 const path = require('path')
-const fs = require('fs')
 
 // 配置
-const DB_PATH = path.join(process.env.APPDATA || process.env.HOME, 'KeyVault', 'keyvault.db')
-const TIMEOUT_MS = 5000
+const TIMEOUT_MS = 10000
+const SOCKET_PATH = process.platform === 'win32'
+  ? '\\\\.\\pipe\\keyvault-native-messaging'
+  : '/tmp/keyvault-native-messaging.sock'
 
 // 状态
-let db = null
-let SQL = null
+let socket = null
 let connected = false
+let pendingRequests = new Map()
+let requestId = 0
 
 /**
  * 读取 Native Messaging 消息
@@ -93,7 +98,7 @@ function readMessage() {
 }
 
 /**
- * 发送 Native Messaging 消息
+ * 发送 Native Messaging 消息到浏览器
  */
 function sendMessage(response) {
   const json = JSON.stringify(response)
@@ -111,10 +116,7 @@ function sendMessage(response) {
 function sendError(code, message) {
   sendMessage({
     success: false,
-    error: {
-      code,
-      message
-    }
+    error: { code, message }
   })
 }
 
@@ -129,218 +131,158 @@ function sendSuccess(data) {
 }
 
 /**
- * 初始化数据库连接
- * 使用与 database.cjs 相同的 sql.js 模式
+ * 连接到主进程 Socket
  */
-async function initDatabase() {
-  try {
-    if (!fs.existsSync(DB_PATH)) {
-      throw new Error('Database not found')
+function connectToMainProcess() {
+  return new Promise((resolve, reject) => {
+    if (socket && !socket.destroyed) {
+      resolve(socket)
+      return
     }
 
-    const initSqlJs = require('sql.js')
-    SQL = await initSqlJs()
-    const fileBuffer = fs.readFileSync(DB_PATH)
-    db = new SQL.Database(fileBuffer)
+    socket = net.createConnection(SOCKET_PATH)
+
+    socket.on('connect', () => {
+      connected = true
+      resolve(socket)
+    })
+
+    socket.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED') {
+        reject(new Error('KeyVault app is not running. Please start the app first.'))
+      } else {
+        reject(err)
+      }
+    })
+
+    socket.on('close', () => {
+      connected = false
+      socket = null
+    })
+
+    // 设置超时
+    socket.setTimeout(TIMEOUT_MS, () => {
+      socket.destroy()
+      reject(new Error('Connection to main process timed out'))
+    })
+  })
+}
+
+/**
+ * 向主进程发送请求并等待响应
+ */
+async function sendToMainProcess(request) {
+  const sock = await connectToMainProcess()
+
+  return new Promise((resolve, reject) => {
+    const id = ++requestId
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(id)
+      reject(new Error('Request timed out'))
+    }, TIMEOUT_MS)
+
+    pendingRequests.set(id, { resolve, reject, timeout })
+
+    // 发送请求（带 ID 用于匹配响应）
+    const message = JSON.stringify({ ...request, _id: id })
+    const buffer = Buffer.from(message, 'utf8')
+    const lengthBuffer = Buffer.alloc(4)
+    lengthBuffer.writeUInt32LE(buffer.length, 0)
+
+    sock.write(lengthBuffer)
+    sock.write(buffer)
+  })
+}
+
+/**
+ * 处理主进程响应
+ */
+function handleMainProcessResponse(data) {
+  try {
+    const response = JSON.parse(data.toString('utf8'))
+    const { _id, ...rest } = response
+
+    if (_id && pendingRequests.has(_id)) {
+      const { resolve, timeout } = pendingRequests.get(_id)
+      clearTimeout(timeout)
+      pendingRequests.delete(_id)
+      resolve(rest)
+    }
+  } catch (e) {
+    // 忽略解析错误
+  }
+}
+
+/**
+ * 初始化主进程连接并设置响应监听
+ */
+async function initMainProcessConnection() {
+  try {
+    const sock = await connectToMainProcess()
+
+    // 监听主进程响应
+    let buffer = Buffer.alloc(0)
+    sock.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk])
+
+      while (buffer.length >= 4) {
+        const messageLength = buffer.readUInt32LE(0)
+        if (buffer.length >= 4 + messageLength) {
+          const messageData = buffer.slice(4, 4 + messageLength)
+          buffer = buffer.slice(4 + messageLength)
+          handleMainProcessResponse(messageData)
+        } else {
+          break
+        }
+      }
+    })
 
     return true
   } catch (error) {
-    console.error('Database initialization failed:', error)
     return false
   }
 }
 
 /**
- * 解密字段（复用主进程的加密模块）
- * 注意：此函数仅用于兼容性——实际生产环境
- * 应通过主进程 IPC 获取解密后的数据
- */
-function decryptField(encrypted) {
-  if (!encrypted) return null
-
-  try {
-    // 加密数据格式：base64(nonce[12] + authTag[16] + ciphertext)
-    // 解密需要 encryptionKey，此模块不持有密钥
-    // 返回 null 表示需要主进程解密
-    return null
-  } catch (error) {
-    return null
-  }
-}
-
-/**
- * 查询所有条目（返回加密列的原始值）
- * 由调用方负责解密
- */
-function queryAll(sql, params) {
-  const stmt = db.prepare(sql)
-  if (params) stmt.bind(params)
-
-  const rows = []
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject())
-  }
-  stmt.free()
-  return rows
-}
-
-/**
- * 查询单个条目
- */
-function queryOne(sql, params) {
-  const rows = queryAll(sql, params)
-  return rows.length > 0 ? rows[0] : null
-}
-
-/**
- * 处理查询请求
- * 返回加密的原始数据，由主进程/扩展负责解密
+ * 处理查询请求（转发给主进程）
  */
 async function handleQuery(request) {
-  const { action, params } = request
+  try {
+    const response = await sendToMainProcess({
+      type: 'native-messaging',
+      action: 'query',
+      ...request
+    })
 
-  switch (action) {
-    case 'search': {
-      const { query, domain } = params || {}
-
-      // 查询所有未删除的条目（列名使用正确的加密列名）
-      let sql = `SELECT id, title_encrypted, username_encrypted, url_encrypted, template_id,
-                 custom_fields_encrypted, last_accessed_at, favorite
-                 FROM entries WHERE deleted = 0`
-      const args = []
-
-      // 注意：由于数据加密，无法在 SQL 中进行 LIKE 搜索
-      // 返回所有条目，由调用方解密后过滤
-      sql += ' ORDER BY favorite DESC, updated_at DESC LIMIT 100'
-
-      const rows = queryAll(sql, args.length ? args : undefined)
-      const entries = rows.map(row => ({
-        id: row.id,
-        title: row.title_encrypted,      // 仍为加密值，需调用方解密
-        username: row.username_encrypted, // 仍为加密值
-        url: row.url_encrypted,           // 仍为加密值
-        templateId: row.template_id,
-        lastAccessedAt: row.last_accessed_at,
-        favorite: row.favorite
-      }))
-
-      sendSuccess({ entries, encrypted: true })
-      break
+    if (response.success) {
+      sendSuccess(response.data)
+    } else {
+      sendError(response.error?.code || 'QUERY_ERROR', response.error?.message || 'Query failed')
     }
-
-    case 'get': {
-      const { id } = params || {}
-      if (!id) {
-        sendError('MISSING_PARAM', 'Entry ID is required')
-        return
-      }
-
-      const row = queryOne(
-        `SELECT id, title_encrypted, username_encrypted, password_encrypted,
-         url_encrypted, template_id, custom_fields_encrypted, notes_encrypted,
-         tags_encrypted, last_accessed_at, favorite, created_at, updated_at
-         FROM entries WHERE id = ? AND deleted = 0`,
-        [id]
-      )
-
-      if (!row) {
-        sendError('NOT_FOUND', 'Entry not found')
-        return
-      }
-
-      const entry = {
-        id: row.id,
-        title: row.title_encrypted,
-        username: row.username_encrypted,
-        password: row.password_encrypted,
-        url: row.url_encrypted,
-        templateId: row.template_id,
-        customFields: row.custom_fields_encrypted,
-        notes: row.notes_encrypted,
-        tags: row.tags_encrypted,
-        lastAccessedAt: row.last_accessed_at,
-        favorite: row.favorite,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }
-
-      sendSuccess({ entry, encrypted: true })
-      break
-    }
-
-    case 'match': {
-      const { url: targetUrl } = params || {}
-      if (!targetUrl) {
-        sendError('MISSING_PARAM', 'URL is required')
-        return
-      }
-
-      // 提取域名
-      let domain
-      try {
-        const urlObj = new URL(targetUrl)
-        domain = urlObj.hostname
-      } catch {
-        domain = targetUrl
-      }
-
-      // 查询所有有 URL 的条目（加密数据无法 LIKE 匹配）
-      // 返回所有条目，由调用方解密后按域名过滤
-      const rows = queryAll(
-        `SELECT id, title_encrypted, username_encrypted, url_encrypted, template_id,
-         last_accessed_at, favorite
-         FROM entries WHERE deleted = 0 AND url_encrypted IS NOT NULL
-         ORDER BY favorite DESC, last_accessed_at DESC`
-      )
-
-      const entries = rows.map(row => ({
-        id: row.id,
-        title: row.title_encrypted,
-        username: row.username_encrypted,
-        url: row.url_encrypted,
-        templateId: row.template_id,
-        lastAccessedAt: row.last_accessed_at,
-        favorite: row.favorite
-      }))
-
-      sendSuccess({ entries, domain, encrypted: true })
-      break
-    }
-
-    case 'save': {
-      // 保存新凭据（需要额外验证）
-      sendError('NOT_IMPLEMENTED', 'Save should be handled by main app')
-      break
-    }
-
-    default:
-      sendError('UNKNOWN_ACTION', `Unknown action: ${action}`)
+  } catch (error) {
+    sendError('MAIN_PROCESS_ERROR', error.message)
   }
 }
 
 /**
- * 处理认证请求
- * 密钥管理由主进程负责，此模块不持有加密密钥
+ * 处理认证请求（转发给主进程）
  */
 async function handleAuth(request) {
-  const { action } = request
-
-  if (action === 'unlock') {
-    // 认证由主进程处理
-    sendError('NOT_IMPLEMENTED', 'Auth should be handled by main app')
-    return
-  }
-
-  if (action === 'status') {
-    sendSuccess({
-      dbAccessible: db !== null,
-      encrypted: true,
-      message: 'This host returns encrypted data. Decrypt via main app.'
+  try {
+    const response = await sendToMainProcess({
+      type: 'native-messaging',
+      action: 'auth',
+      ...request
     })
-    return
-  }
 
-  sendError('INVALID_ACTION', 'Invalid auth action')
+    if (response.success) {
+      sendSuccess(response.data)
+    } else {
+      sendError(response.error?.code || 'AUTH_ERROR', response.error?.message || 'Auth failed')
+    }
+  } catch (error) {
+    sendError('MAIN_PROCESS_ERROR', error.message)
+  }
 }
 
 /**
@@ -359,12 +301,13 @@ async function handleMessage(message) {
       break
 
     case 'ping':
-      sendSuccess({ pong: true, connected: true })
+      sendSuccess({ pong: true, connected })
       break
 
     case 'disconnect':
       connected = false
       sendSuccess({ disconnected: true })
+      if (socket) socket.destroy()
       process.exit(0)
       break
 
@@ -381,17 +324,15 @@ async function main() {
   process.stdin.setEncoding(null)
   process.stdout.setEncoding(null)
 
-  // 初始化数据库
-  const dbInitialized = await initDatabase()
-  if (!dbInitialized) {
-    sendError('DB_ERROR', 'Failed to initialize database')
+  // 初始化与主进程的连接
+  const connected = await initMainProcessConnection()
+  if (!connected) {
+    sendError('CONNECTION_ERROR', 'Failed to connect to KeyVault app. Please ensure the app is running.')
     process.exit(1)
   }
 
-  connected = true
-
   // 消息循环
-  while (connected) {
+  while (true) {
     try {
       const message = await readMessage()
       await handleMessage(message)

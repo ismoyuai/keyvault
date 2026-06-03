@@ -14,7 +14,16 @@ const fs = require('fs')
 
 // 配置
 const HOST_NAME = 'com.keyvault.extension'
-const MANIFEST_PATH = path.join(__dirname, 'manifest.json')
+
+// 判断是否打包环境 (asar 内无法被浏览器直接执行)
+const isPackaged = __dirname.includes('app.asar')
+
+// host.cjs 和 manifest.json 在 extraResources 中的路径
+const RESOURCES_PATH = isPackaged
+  ? path.join(process.resourcesPath, 'native-messaging')
+  : __dirname
+
+const MANIFEST_PATH = path.join(RESOURCES_PATH, 'manifest.json')
 
 // 从命令行参数获取 extension ID
 const extensionId = process.argv[3]
@@ -25,7 +34,8 @@ const extensionId = process.argv[3]
  */
 function getManifest() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
-  manifest.path = path.resolve(__dirname, 'host.cjs')
+  // host.cjs 在 extraResources 目录中
+  manifest.path = path.join(RESOURCES_PATH, 'host.cjs')
 
   if (extensionId) {
     manifest.allowed_origins = [
