@@ -182,7 +182,7 @@ const scoreLevel = computed(() => {
 })
 
 onMounted(async () => {
-  await entriesStore.loadEntries()
+  // loadEntries 由下方 watch(route.query, {immediate:true}) 处理
   try { auditResult.value = await window.keyvault.audit.passwords() } catch {}
 })
 

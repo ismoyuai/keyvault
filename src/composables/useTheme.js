@@ -6,6 +6,7 @@ const themePreference = ref('system')
 export function useTheme() {
   let mediaQuery = null
   let handleChange = null
+  let removeIpcListener = null
 
   function applyTheme(theme) {
     const resolved = theme === 'system'
@@ -33,7 +34,7 @@ export function useTheme() {
     mediaQuery.addEventListener('change', handleChange)
 
     if (window.keyvault.theme.onChange) {
-      window.keyvault.theme.onChange((_event, theme) => {
+      removeIpcListener = window.keyvault.theme.onChange((_event, theme) => {
         applyTheme(theme)
       })
     }
@@ -50,6 +51,10 @@ export function useTheme() {
   onUnmounted(() => {
     if (mediaQuery && handleChange) {
       mediaQuery.removeEventListener('change', handleChange)
+    }
+    if (removeIpcListener) {
+      removeIpcListener()
+      removeIpcListener = null
     }
   })
 

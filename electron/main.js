@@ -13,7 +13,7 @@ const { encryptField, decryptField, zeroBuffer } = require('./crypto/encryption.
 const { initDatabase, closeDatabase, addEntry, addEntries, getEntry, updateEntry, deleteEntry,
         listEntries, searchEntries, exportEncrypted, importEncrypted,
         addGroup, listGroups, deleteGroup, getSetting, setSetting,
-        hasImported, logImport } = require('./storage/database.cjs')
+        hasImported, logImport, updateLastAccessed } = require('./storage/database.cjs')
 const { getDeviceId } = require('./utils/identity.cjs')
 const { createWebDAVClient, testConnection } = require('./sync/webdav-client.cjs')
 const { push, pull, getStatus, mergeEntries } = require('./sync/sync-engine.cjs')
@@ -109,7 +109,12 @@ function createWindow() {
   mainWindow.on('blur', () => mainWindow.webContents.send('window:blur'))
 
   // System tray
-  createTray(mainWindow, lockApp)
+  createTray(mainWindow, lockApp, () => {
+    // Tray Exit: 先锁定（清零密钥），再退出
+    lockApp()
+    app.isQuitting = true
+    app.quit()
+  })
 
   // Minimize to tray instead of closing
   mainWindow.on('close', (event) => {
@@ -301,6 +306,12 @@ ipcMain.handle('entries:search', wrapIPC((event, query) => {
   return searchEntries(query, encryptionKey)
 }))
 
+ipcMain.handle('entries:updateLastAccessed', wrapIPC((event, id) => {
+  if (!encryptionKey) throw new Error('未解锁')
+  updateLastAccessed(id)
+  return { success: true }
+}))
+
 // --- Groups ---
 ipcMain.handle('groups:list', wrapIPC(() => {
   if (!encryptionKey) throw new Error('未解锁')
@@ -435,11 +446,12 @@ nativeTheme.on('updated', () => {
 })
 
 // --- Native Messaging ---
-ipcMain.handle('native-messaging:register', wrapIPC(() => {
+ipcMain.handle('native-messaging:register', wrapIPC((event, extensionId) => {
   const { execSync } = require('child_process')
   const registerScript = path.join(__dirname, 'native-messaging', 'register-host.cjs')
   try {
-    execSync(`node "${registerScript}" register`, { stdio: 'pipe' })
+    const idArg = extensionId ? ` "${extensionId}"` : ''
+    execSync(`node "${registerScript}" register${idArg}`, { stdio: 'pipe' })
     return { success: true }
   } catch (error) {
     throw new Error(`Registration failed: ${error.message}`)
@@ -460,22 +472,31 @@ ipcMain.handle('native-messaging:unregister', wrapIPC(() => {
 ipcMain.handle('native-messaging:status', wrapIPC(() => {
   const { execSync } = require('child_process')
   const hostName = 'com.keyvault.extension'
+
+  let chromeRegistered = false
+  let firefoxRegistered = false
+
   try {
     const chromeResult = execSync(
       `reg query "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${hostName}" 2>nul`,
       { stdio: 'pipe' }
     ).toString()
+    chromeRegistered = chromeResult.includes('REG_SZ')
+  } catch {
+    // Chrome not registered
+  }
+
+  try {
     const firefoxResult = execSync(
       `reg query "HKCU\\Software\\Mozilla\\NativeMessagingHosts\\${hostName}" 2>nul`,
       { stdio: 'pipe' }
     ).toString()
-    return {
-      chromeRegistered: chromeResult.includes('REG_SZ'),
-      firefoxRegistered: firefoxResult.includes('REG_SZ')
-    }
+    firefoxRegistered = firefoxResult.includes('REG_SZ')
   } catch {
-    return { chromeRegistered: false, firefoxRegistered: false }
+    // Firefox not registered
   }
+
+  return { chromeRegistered, firefoxRegistered }
 }))
 
 // --- Settings ---

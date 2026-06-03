@@ -7,3 +7,5 @@ release/
 .DS_Store
 Thumbs.db
 docs/api_key.txt
+electron/native-messaging/chrome-manifest.json
+electron/native-messaging/firefox-manifest.json

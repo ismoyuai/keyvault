@@ -17,6 +17,8 @@ export const useEntriesStore = defineStore('entries', () => {
 
   async function loadEntry(id) {
     currentEntry.value = await window.keyvault.entries.get(id)
+    // 更新最后访问时间（不阻塞返回）
+    window.keyvault.entries.updateLastAccessed(id).catch(() => {})
     return currentEntry.value
   }
 
@@ -51,7 +53,9 @@ export const useEntriesStore = defineStore('entries', () => {
   }
 
   async function searchEntries(query) {
-    entries.value = await window.keyvault.entries.search(query)
+    const results = await window.keyvault.entries.search(query)
+    entries.value = results
+    return results
   }
 
   return {

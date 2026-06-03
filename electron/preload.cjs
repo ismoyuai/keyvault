@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('keyvault', {
     update: async (id, data) => unwrap(await ipcRenderer.invoke('entries:update', id, data)),
     delete: async (id) => unwrap(await ipcRenderer.invoke('entries:delete', id)),
     search: async (query) => unwrap(await ipcRenderer.invoke('entries:search', query)),
+    updateLastAccessed: async (id) => unwrap(await ipcRenderer.invoke('entries:updateLastAccessed', id)),
   },
   groups: {
     list: async () => unwrap(await ipcRenderer.invoke('groups:list')),
@@ -60,10 +61,13 @@ contextBridge.exposeInMainWorld('keyvault', {
   theme: {
     get: async () => unwrap(await ipcRenderer.invoke('theme:get')),
     set: async (theme) => unwrap(await ipcRenderer.invoke('theme:set', theme)),
-    onChange: (callback) => ipcRenderer.on('theme:changed', callback),
+    onChange: (callback) => {
+      ipcRenderer.on('theme:changed', callback)
+      return () => ipcRenderer.removeListener('theme:changed', callback)
+    },
   },
   nativeMessaging: {
-    register: async () => unwrap(await ipcRenderer.invoke('native-messaging:register')),
+    register: async (extensionId) => unwrap(await ipcRenderer.invoke('native-messaging:register', extensionId)),
     unregister: async () => unwrap(await ipcRenderer.invoke('native-messaging:unregister')),
     status: async () => unwrap(await ipcRenderer.invoke('native-messaging:status')),
   },

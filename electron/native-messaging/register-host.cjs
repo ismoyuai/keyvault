@@ -16,12 +16,23 @@ const fs = require('fs')
 const HOST_NAME = 'com.keyvault.extension'
 const MANIFEST_PATH = path.join(__dirname, 'manifest.json')
 
+// 从命令行参数获取 extension ID
+const extensionId = process.argv[3]
+
 /**
  * 获取 manifest 内容
+ * 如果提供了 extension ID，替换占位符
  */
 function getManifest() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
   manifest.path = path.resolve(__dirname, 'host.cjs')
+
+  if (extensionId) {
+    manifest.allowed_origins = [
+      `chrome-extension://${extensionId}/`
+    ]
+  }
+
   return JSON.stringify(manifest, null, 2)
 }
 
@@ -106,6 +117,9 @@ switch (command) {
     break
   default:
     console.log('Usage:')
-    console.log('  node register-host.cjs register    - Register native messaging host')
-    console.log('  node register-host.cjs unregister  - Unregister native messaging host')
+    console.log('  node register-host.cjs register [extensionId]  - Register native messaging host')
+    console.log('  node register-host.cjs unregister              - Unregister native messaging host')
+    console.log('')
+    console.log('Example:')
+    console.log('  node register-host.cjs register abcdefghijklmnopqrstuvwxyz123456')
 }

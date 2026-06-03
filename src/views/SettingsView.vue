@@ -214,7 +214,7 @@ async function unregisterNativeHost() {
   font-size: 14px;
   transition: background 0.2s ease;
 }
-.btn-primary:hover { background: var(--accent-secondary); }
+.btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .extension-status { margin-bottom: 16px; }
 .status-item {

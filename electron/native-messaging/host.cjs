@@ -6,12 +6,13 @@
  *
  * 处理浏览器扩展的通信请求
  * 协议：Native Messaging (stdin/stdout, JSON)
+ *
+ * 注意：此模块从主进程接收解密后的数据，
+ * 不自行解密——加密/解密仅在主进程完成（安全红线）。
  */
 
-const { createClient } = require('sql.js')
 const path = require('path')
 const fs = require('fs')
-const crypto = require('crypto')
 
 // 配置
 const DB_PATH = path.join(process.env.APPDATA || process.env.HOME, 'KeyVault', 'keyvault.db')
@@ -19,7 +20,7 @@ const TIMEOUT_MS = 5000
 
 // 状态
 let db = null
-let encryptionKey = null
+let SQL = null
 let connected = false
 
 /**
@@ -30,17 +31,28 @@ function readMessage() {
   return new Promise((resolve, reject) => {
     const chunks = []
     let totalLength = 0
+    let resolved = false
 
-    process.stdin.on('data', (chunk) => {
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        cleanup()
+        reject(new Error('Connection timeout'))
+      }
+    }, TIMEOUT_MS)
+
+    function onData(chunk) {
+      if (resolved) return
       chunks.push(chunk)
       totalLength += chunk.length
 
-      // 检查是否收到完整消息
       if (totalLength >= 4) {
         const buffer = Buffer.concat(chunks)
         const messageLength = buffer.readUInt32LE(0)
 
         if (buffer.length >= 4 + messageLength) {
+          resolved = true
+          cleanup()
           const message = buffer.slice(4, 4 + messageLength).toString('utf8')
           try {
             resolve(JSON.parse(message))
@@ -49,13 +61,34 @@ function readMessage() {
           }
         }
       }
-    })
+    }
 
-    process.stdin.on('error', reject)
-    process.stdin.on('end', () => reject(new Error('Connection closed')))
+    function onError(err) {
+      if (!resolved) {
+        resolved = true
+        cleanup()
+        reject(err)
+      }
+    }
 
-    // 超时处理
-    setTimeout(() => reject(new Error('Connection timeout')), TIMEOUT_MS)
+    function onEnd() {
+      if (!resolved) {
+        resolved = true
+        cleanup()
+        reject(new Error('Connection closed'))
+      }
+    }
+
+    function cleanup() {
+      clearTimeout(timeout)
+      process.stdin.removeListener('data', onData)
+      process.stdin.removeListener('error', onError)
+      process.stdin.removeListener('end', onEnd)
+    }
+
+    process.stdin.on('data', onData)
+    process.stdin.on('error', onError)
+    process.stdin.on('end', onEnd)
   })
 }
 
@@ -97,6 +130,7 @@ function sendSuccess(data) {
 
 /**
  * 初始化数据库连接
+ * 使用与 database.cjs 相同的 sql.js 模式
  */
 async function initDatabase() {
   try {
@@ -104,9 +138,10 @@ async function initDatabase() {
       throw new Error('Database not found')
     }
 
-    const SQL = await createClient()
+    const initSqlJs = require('sql.js')
+    SQL = await initSqlJs()
     const fileBuffer = fs.readFileSync(DB_PATH)
-    db = await SQL.Database(fileBuffer)
+    db = new SQL.Database(fileBuffer)
 
     return true
   } catch (error) {
@@ -116,55 +151,50 @@ async function initDatabase() {
 }
 
 /**
- * 设置加密密钥
- */
-function setEncryptionKey(key) {
-  encryptionKey = Buffer.from(key, 'hex')
-}
-
-/**
- * 解密字段
+ * 解密字段（复用主进程的加密模块）
+ * 注意：此函数仅用于兼容性——实际生产环境
+ * 应通过主进程 IPC 获取解密后的数据
  */
 function decryptField(encrypted) {
-  if (!encrypted || !encryptionKey) return null
+  if (!encrypted) return null
 
   try {
-    const buffer = Buffer.from(encrypted, 'base64')
-    const iv = buffer.slice(0, 12)
-    const authTag = buffer.slice(12, 28)
-    const data = buffer.slice(28)
-
-    const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, iv)
-    decipher.setAuthTag(authTag)
-
-    let decrypted = decipher.update(data)
-    decrypted = Buffer.concat([decrypted, decipher.final()])
-
-    return decrypted.toString('utf8')
+    // 加密数据格式：base64(nonce[12] + authTag[16] + ciphertext)
+    // 解密需要 encryptionKey，此模块不持有密钥
+    // 返回 null 表示需要主进程解密
+    return null
   } catch (error) {
-    console.error('Decryption failed:', error)
     return null
   }
 }
 
 /**
- * 处理认证请求
+ * 查询所有条目（返回加密列的原始值）
+ * 由调用方负责解密
  */
-async function handleAuth(request) {
-  const { action, masterPassword } = request
+function queryAll(sql, params) {
+  const stmt = db.prepare(sql)
+  if (params) stmt.bind(params)
 
-  if (action !== 'unlock') {
-    sendError('INVALID_ACTION', 'Invalid auth action')
-    return
+  const rows = []
+  while (stmt.step()) {
+    rows.push(stmt.getAsObject())
   }
+  stmt.free()
+  return rows
+}
 
-  // 验证主密码（这里简化处理，实际应该验证 Argon2id 哈希）
-  // 安全考虑：应该从主进程获取验证结果，而不是在这里验证
-  sendError('NOT_IMPLEMENTED', 'Auth should be handled by main app')
+/**
+ * 查询单个条目
+ */
+function queryOne(sql, params) {
+  const rows = queryAll(sql, params)
+  return rows.length > 0 ? rows[0] : null
 }
 
 /**
  * 处理查询请求
+ * 返回加密的原始数据，由主进程/扩展负责解密
  */
 async function handleQuery(request) {
   const { action, params } = request
@@ -172,31 +202,29 @@ async function handleQuery(request) {
   switch (action) {
     case 'search': {
       const { query, domain } = params || {}
-      let sql = 'SELECT id, title, username_encrypted, url, template_id FROM entries WHERE 1=1'
+
+      // 查询所有未删除的条目（列名使用正确的加密列名）
+      let sql = `SELECT id, title_encrypted, username_encrypted, url_encrypted, template_id,
+                 custom_fields_encrypted, last_accessed_at, favorite
+                 FROM entries WHERE deleted = 0`
       const args = []
 
-      if (query) {
-        sql += ' AND (title LIKE ? OR url LIKE ?)'
-        args.push(`%${query}%`, `%${query}%`)
-      }
+      // 注意：由于数据加密，无法在 SQL 中进行 LIKE 搜索
+      // 返回所有条目，由调用方解密后过滤
+      sql += ' ORDER BY favorite DESC, updated_at DESC LIMIT 100'
 
-      if (domain) {
-        sql += ' AND url LIKE ?'
-        args.push(`%${domain}%`)
-      }
+      const rows = queryAll(sql, args.length ? args : undefined)
+      const entries = rows.map(row => ({
+        id: row.id,
+        title: row.title_encrypted,      // 仍为加密值，需调用方解密
+        username: row.username_encrypted, // 仍为加密值
+        url: row.url_encrypted,           // 仍为加密值
+        templateId: row.template_id,
+        lastAccessedAt: row.last_accessed_at,
+        favorite: row.favorite
+      }))
 
-      sql += ' ORDER BY last_accessed_at DESC LIMIT 20'
-
-      const results = db.exec(sql, args)
-      const entries = results.length > 0 ? results[0].values.map(row => ({
-        id: row[0],
-        title: row[1],
-        username: decryptField(row[2]),
-        url: row[3],
-        templateId: row[4]
-      })) : []
-
-      sendSuccess({ entries })
+      sendSuccess({ entries, encrypted: true })
       break
     }
 
@@ -207,28 +235,36 @@ async function handleQuery(request) {
         return
       }
 
-      const results = db.exec(
-        'SELECT id, title, username_encrypted, password_encrypted, url, template_id, custom_fields_encrypted FROM entries WHERE id = ?',
+      const row = queryOne(
+        `SELECT id, title_encrypted, username_encrypted, password_encrypted,
+         url_encrypted, template_id, custom_fields_encrypted, notes_encrypted,
+         tags_encrypted, last_accessed_at, favorite, created_at, updated_at
+         FROM entries WHERE id = ? AND deleted = 0`,
         [id]
       )
 
-      if (results.length === 0 || results[0].values.length === 0) {
+      if (!row) {
         sendError('NOT_FOUND', 'Entry not found')
         return
       }
 
-      const row = results[0].values[0]
       const entry = {
-        id: row[0],
-        title: row[1],
-        username: decryptField(row[2]),
-        password: decryptField(row[3]),
-        url: row[4],
-        templateId: row[5],
-        customFields: row[6] ? JSON.parse(decryptField(row[6]) || '[]') : []
+        id: row.id,
+        title: row.title_encrypted,
+        username: row.username_encrypted,
+        password: row.password_encrypted,
+        url: row.url_encrypted,
+        templateId: row.template_id,
+        customFields: row.custom_fields_encrypted,
+        notes: row.notes_encrypted,
+        tags: row.tags_encrypted,
+        lastAccessedAt: row.last_accessed_at,
+        favorite: row.favorite,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
       }
 
-      sendSuccess({ entry })
+      sendSuccess({ entry, encrypted: true })
       break
     }
 
@@ -248,20 +284,26 @@ async function handleQuery(request) {
         domain = targetUrl
       }
 
-      const results = db.exec(
-        'SELECT id, title, username_encrypted, url, template_id FROM entries WHERE url LIKE ? AND template_id = "password" ORDER BY last_accessed_at DESC',
-        [`%${domain}%`]
+      // 查询所有有 URL 的条目（加密数据无法 LIKE 匹配）
+      // 返回所有条目，由调用方解密后按域名过滤
+      const rows = queryAll(
+        `SELECT id, title_encrypted, username_encrypted, url_encrypted, template_id,
+         last_accessed_at, favorite
+         FROM entries WHERE deleted = 0 AND url_encrypted IS NOT NULL
+         ORDER BY favorite DESC, last_accessed_at DESC`
       )
 
-      const entries = results.length > 0 ? results[0].values.map(row => ({
-        id: row[0],
-        title: row[1],
-        username: decryptField(row[2]),
-        url: row[3],
-        templateId: row[4]
-      })) : []
+      const entries = rows.map(row => ({
+        id: row.id,
+        title: row.title_encrypted,
+        username: row.username_encrypted,
+        url: row.url_encrypted,
+        templateId: row.template_id,
+        lastAccessedAt: row.last_accessed_at,
+        favorite: row.favorite
+      }))
 
-      sendSuccess({ entries, domain })
+      sendSuccess({ entries, domain, encrypted: true })
       break
     }
 
@@ -274,6 +316,31 @@ async function handleQuery(request) {
     default:
       sendError('UNKNOWN_ACTION', `Unknown action: ${action}`)
   }
+}
+
+/**
+ * 处理认证请求
+ * 密钥管理由主进程负责，此模块不持有加密密钥
+ */
+async function handleAuth(request) {
+  const { action } = request
+
+  if (action === 'unlock') {
+    // 认证由主进程处理
+    sendError('NOT_IMPLEMENTED', 'Auth should be handled by main app')
+    return
+  }
+
+  if (action === 'status') {
+    sendSuccess({
+      dbAccessible: db !== null,
+      encrypted: true,
+      message: 'This host returns encrypted data. Decrypt via main app.'
+    })
+    return
+  }
+
+  sendError('INVALID_ACTION', 'Invalid auth action')
 }
 
 /**

@@ -168,7 +168,12 @@ function listEntries(key, filters) {
   if (filters.group_id) { sql += ' AND group_id = ?'; params.push(filters.group_id) }
   if (filters.type) { sql += ' AND type = ?'; params.push(filters.type) }
   if (filters.favorites) { sql += ' AND favorite = 1' }
-  sql += ' ORDER BY favorite DESC, updated_at DESC'
+  if (filters.recent) { sql += ' AND last_accessed_at IS NOT NULL' }
+  if (filters.recent) {
+    sql += ' ORDER BY last_accessed_at DESC LIMIT 20'
+  } else {
+    sql += ' ORDER BY favorite DESC, updated_at DESC'
+  }
   return queryAll(sql, params.length ? params : undefined).map(row => decryptRow(row, key))
 }
 
@@ -198,11 +203,14 @@ function importEncrypted(data) {
     if (!existing || entry.updated_at > existing.updated_at) {
       db.run(`INSERT OR REPLACE INTO entries (id, type, title_encrypted, username_encrypted,
         password_encrypted, url_encrypted, notes_encrypted, group_id, tags_encrypted, favorite,
-        created_at, updated_at, device_id, deleted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        created_at, updated_at, device_id, deleted, template_id, custom_fields_encrypted,
+        last_accessed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [entry.id, entry.type, entry.title_encrypted, entry.username_encrypted,
          entry.password_encrypted, entry.url_encrypted, entry.notes_encrypted,
          entry.group_id, entry.tags_encrypted, entry.favorite,
-         entry.created_at, entry.updated_at, entry.device_id, entry.deleted])
+         entry.created_at, entry.updated_at, entry.device_id, entry.deleted,
+         entry.template_id || '', entry.custom_fields_encrypted || null,
+         entry.last_accessed_at || null])
     }
   }
   for (const group of data.groups || []) {

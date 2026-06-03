@@ -101,6 +101,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEntriesStore } from '@/stores/entries'
 import { useGroupsStore } from '@/stores/groups'
 import { usePasswordGenerator } from '@/composables/usePasswordGenerator'
+import { useClipboard } from '@/composables/useClipboard'
 
 const route = useRoute()
 const router = useRouter()
@@ -112,6 +113,7 @@ const editing = ref(false)
 const editForm = ref({})
 
 const { generate } = usePasswordGenerator()
+const { copy: clipboardCopy } = useClipboard()
 
 function generateAndFill() {
   editForm.value.password = generate()
@@ -139,8 +141,8 @@ onMounted(async () => {
 })
 
 async function copy(field, value) {
-  await window.keyvault.clipboard.copy(value)
-  ElMessage.success(`${field === 'password' ? '密码' : field === 'username' ? '用户名' : '链接'}已复制，30秒后清除`)
+  const seconds = await clipboardCopy(value, field)
+  ElMessage.success(`${field === 'password' ? '密码' : field === 'username' ? '用户名' : '链接'}已复制，${seconds}秒后清除`)
 }
 
 function startEdit() {

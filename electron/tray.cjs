@@ -2,7 +2,7 @@ const { Tray, Menu, nativeImage } = require('electron')
 
 let tray = null
 
-function createTray(mainWindow, onLock) {
+function createTray(mainWindow, onLock, onExit) {
   const icon = nativeImage.createEmpty()
   tray = new Tray(icon)
   tray.setToolTip('KeyVault')
@@ -20,7 +20,7 @@ function createTray(mainWindow, onLock) {
     { type: 'separator' },
     {
       label: '退出',
-      click: () => { mainWindow.destroy() }
+      click: () => { if (onExit) onExit(); else mainWindow.destroy() }
     },
   ])
 
