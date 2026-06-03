@@ -24,6 +24,18 @@
     </div>
 
     <div class="settings-card">
+      <h3>外观</h3>
+      <div class="setting-item">
+        <div class="setting-label">主题</div>
+        <el-select v-model="themePreference" @change="setTheme">
+          <el-option value="dark" label="暗色" />
+          <el-option value="light" label="浅色" />
+          <el-option value="system" label="跟随系统" />
+        </el-select>
+      </div>
+    </div>
+
+    <div class="settings-card">
       <h3>密码管理</h3>
       <button class="btn-outline" @click="showChangePwd = true">修改 Master Password</button>
     </div>
@@ -60,6 +72,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useTheme } from '@/composables/useTheme'
+
+const { themePreference, setTheme } = useTheme()
 
 const settings = ref({ autoLockMinutes: 15, clipboardClearSeconds: 30 })
 const showChangePwd = ref(false)

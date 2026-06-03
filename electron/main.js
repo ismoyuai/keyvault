@@ -396,6 +396,28 @@ ipcMain.handle('audit:passwords', wrapIPC(() => auditPasswords()))
 // --- Clipboard ---
 ipcMain.handle('clipboard:copy', wrapIPC((event, text) => { clipboard.writeText(text); return true }))
 
+// --- Theme ---
+const { nativeTheme } = require('electron')
+
+ipcMain.handle('theme:get', wrapIPC(() => {
+  const config = loadConfig()
+  return config.theme || 'system'
+}))
+
+ipcMain.handle('theme:set', wrapIPC((event, theme) => {
+  const config = loadConfig()
+  config.theme = theme
+  saveConfig(config)
+  nativeTheme.themeSource = theme
+  return { success: true }
+}))
+
+nativeTheme.on('updated', () => {
+  if (mainWindow) {
+    mainWindow.webContents.send('theme:changed', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+  }
+})
+
 // --- Settings ---
 ipcMain.handle('settings:get', wrapIPC(() => {
   const config = loadConfig()

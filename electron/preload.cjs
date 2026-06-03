@@ -57,6 +57,11 @@ contextBridge.exposeInMainWorld('keyvault', {
       return result.data
     },
   },
+  theme: {
+    get: async () => unwrap(await ipcRenderer.invoke('theme:get')),
+    set: async (theme) => unwrap(await ipcRenderer.invoke('theme:set', theme)),
+    onChange: (callback) => ipcRenderer.on('theme:changed', callback),
+  },
   dialog: {
     openFile: async (options) => unwrap(await ipcRenderer.invoke('dialog:open-file', options)),
   },

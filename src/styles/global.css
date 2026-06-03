@@ -12,7 +12,9 @@ html, body, #app {
   color: #e0e0e0;
 }
 
-:root {
+/* 暗色主题（默认） */
+:root,
+[data-theme="dark"] {
   --bg-primary: #0f0f0f;
   --bg-secondary: #1a1a1a;
   --bg-tertiary: #252525;
@@ -23,8 +25,26 @@ html, body, #app {
   --accent-hover: #66b1ff;
   --danger: #f56c6c;
   --success: #67c23a;
+  --warning: #e6a23c;
   --border: #333;
   --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* 浅色主题 */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #e8e8ed;
+  --bg-hover: #dcdce0;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --danger: #ff3b30;
+  --success: #34c759;
+  --warning: #ff9500;
+  --border: #d2d2d7;
+  --shadow: rgba(0, 0, 0, 0.1);
 }
 
 /* 滚动条 */
