@@ -42,6 +42,7 @@
     }
   },
   "dependencies": {
+    "@lucide/vue": "^1.17.0",
     "argon2": "^0.41.0",
     "element-plus": "^2.9.0",
     "papaparse": "^5.5.0",
