@@ -434,6 +434,50 @@ nativeTheme.on('updated', () => {
   }
 })
 
+// --- Native Messaging ---
+ipcMain.handle('native-messaging:register', wrapIPC(() => {
+  const { execSync } = require('child_process')
+  const registerScript = path.join(__dirname, 'native-messaging', 'register-host.cjs')
+  try {
+    execSync(`node "${registerScript}" register`, { stdio: 'pipe' })
+    return { success: true }
+  } catch (error) {
+    throw new Error(`Registration failed: ${error.message}`)
+  }
+}))
+
+ipcMain.handle('native-messaging:unregister', wrapIPC(() => {
+  const { execSync } = require('child_process')
+  const registerScript = path.join(__dirname, 'native-messaging', 'register-host.cjs')
+  try {
+    execSync(`node "${registerScript}" unregister`, { stdio: 'pipe' })
+    return { success: true }
+  } catch (error) {
+    throw new Error(`Unregistration failed: ${error.message}`)
+  }
+}))
+
+ipcMain.handle('native-messaging:status', wrapIPC(() => {
+  const { execSync } = require('child_process')
+  const hostName = 'com.keyvault.extension'
+  try {
+    const chromeResult = execSync(
+      `reg query "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${hostName}" 2>nul`,
+      { stdio: 'pipe' }
+    ).toString()
+    const firefoxResult = execSync(
+      `reg query "HKCU\\Software\\Mozilla\\NativeMessagingHosts\\${hostName}" 2>nul`,
+      { stdio: 'pipe' }
+    ).toString()
+    return {
+      chromeRegistered: chromeResult.includes('REG_SZ'),
+      firefoxRegistered: firefoxResult.includes('REG_SZ')
+    }
+  } catch {
+    return { chromeRegistered: false, firefoxRegistered: false }
+  }
+}))
+
 // --- Settings ---
 ipcMain.handle('settings:get', wrapIPC(() => {
   const config = loadConfig()

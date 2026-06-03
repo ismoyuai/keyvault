@@ -1,0 +1,9 @@
+{
+  "name": "com.keyvault.extension",
+  "description": "KeyVault Password Manager Native Messaging Host",
+  "path": "host.cjs",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://YOUR_EXTENSION_ID/"
+  ]
+}

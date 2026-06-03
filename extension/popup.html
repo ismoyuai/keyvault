@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeyVault</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- 头部 -->
+    <div class="popup-header">
+      <div class="popup-logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span class="popup-title">KeyVault</span>
+      </div>
+      <div class="popup-status">
+        <span class="status-indicator" id="statusIndicator"></span>
+        <span class="status-text" id="statusText">未连接</span>
+      </div>
+    </div>
+
+    <!-- 搜索框 -->
+    <div class="popup-search">
+      <input type="text" id="searchInput" placeholder="搜索凭据..." />
+    </div>
+
+    <!-- 凭据列表 -->
+    <div class="popup-content">
+      <div class="credentials-list" id="credentialsList">
+        <!-- 动态填充 -->
+      </div>
+    </div>
+
+    <!-- 底部操作 -->
+    <div class="popup-footer">
+      <button id="connectBtn" class="popup-btn popup-btn-primary">
+        连接 KeyVault
+      </button>
+      <button id="openAppBtn" class="popup-btn popup-btn-secondary">
+        打开应用
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -62,6 +62,11 @@ contextBridge.exposeInMainWorld('keyvault', {
     set: async (theme) => unwrap(await ipcRenderer.invoke('theme:set', theme)),
     onChange: (callback) => ipcRenderer.on('theme:changed', callback),
   },
+  nativeMessaging: {
+    register: async () => unwrap(await ipcRenderer.invoke('native-messaging:register')),
+    unregister: async () => unwrap(await ipcRenderer.invoke('native-messaging:unregister')),
+    status: async () => unwrap(await ipcRenderer.invoke('native-messaging:status')),
+  },
   dialog: {
     openFile: async (options) => unwrap(await ipcRenderer.invoke('dialog:open-file', options)),
   },
