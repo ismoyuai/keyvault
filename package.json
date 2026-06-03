@@ -35,6 +35,10 @@
         "to": "native-messaging/host.cjs"
       },
       {
+        "from": "electron/native-messaging/host.cmd",
+        "to": "native-messaging/host.cmd"
+      },
+      {
         "from": "electron/native-messaging/register-host.cjs",
         "to": "native-messaging/register-host.cjs"
       },

@@ -34,8 +34,8 @@ const extensionId = process.argv[3]
  */
 function getManifest() {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
-  // host.cjs 在 extraResources 目录中
-  manifest.path = path.join(RESOURCES_PATH, 'host.cjs')
+  // 使用 host.cmd 包装器
+  manifest.path = path.join(RESOURCES_PATH, 'host.cmd')
 
   if (extensionId) {
     manifest.allowed_origins = [

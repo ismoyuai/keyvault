@@ -52,32 +52,58 @@ function readMessage() {
     let totalLength = 0
     let resolved = false
 
+    log('readMessage: waiting for data on stdin...')
+    log('readMessage: stdin.readable=' + process.stdin.readable + ', stdin.isTTY=' + process.stdin.isTTY)
+
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true
         cleanup()
+        log('readMessage: timeout')
         reject(new Error('Connection timeout'))
       }
     }, TIMEOUT_MS)
 
     function onData(chunk) {
       if (resolved) return
+      log('readMessage: onData received ' + chunk.length + ' bytes')
       chunks.push(chunk)
       totalLength += chunk.length
+      log('readMessage: totalLength=' + totalLength)
 
       if (totalLength >= 4) {
         const buf = Buffer.concat(chunks)
+        log('readMessage: buffer length=' + buf.length)
+        log('readMessage: first 4 bytes (hex)=' + buf.slice(0, 4).toString('hex'))
+
         const messageLength = buf.readUInt32LE(0)
+        log('readMessage: message length=' + messageLength + ', need ' + (4 + messageLength) + ' bytes total')
+
+        if (messageLength > 1048576) { // 1MB sanity check
+          log('readMessage: message too large, rejecting')
+          resolved = true
+          cleanup()
+          reject(new Error('Message too large'))
+          return
+        }
 
         if (buf.length >= 4 + messageLength) {
           resolved = true
           cleanup()
-          const message = buf.slice(4, 4 + messageLength).toString('utf8')
+          const messageBuf = buf.slice(4, 4 + messageLength)
+          log('readMessage: raw message bytes (hex)=' + messageBuf.toString('hex'))
+          const message = messageBuf.toString('utf8')
+          log('readMessage: received message: ' + message)
           try {
-            resolve(JSON.parse(message))
+            const parsed = JSON.parse(message)
+            log('readMessage: parsed message type=' + parsed.type)
+            resolve(parsed)
           } catch (e) {
+            log('readMessage: JSON parse error: ' + e.message)
             reject(new Error('Invalid JSON message'))
           }
+        } else {
+          log('readMessage: need more data, have ' + buf.length + ' need ' + (4 + messageLength))
         }
       }
     }
@@ -86,6 +112,7 @@ function readMessage() {
       if (!resolved) {
         resolved = true
         cleanup()
+        log('readMessage: error: ' + err.message)
         reject(err)
       }
     }
@@ -94,6 +121,7 @@ function readMessage() {
       if (!resolved) {
         resolved = true
         cleanup()
+        log('readMessage: stdin ended')
         reject(new Error('Connection closed'))
       }
     }
