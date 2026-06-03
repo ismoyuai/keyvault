@@ -1,29 +1,39 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
-import { ElMessage } from 'element-plus'
-import 'element-plus/dist/index.css'
+import * as LucideIcons from '@lucide/vue'
 import App from './App.vue'
 import router from './router'
 import './styles/global.css'
 
 const app = createApp(App)
-const pinia = createPinia()
-
-app.use(pinia)
+app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)
 
-// Global error boundary
-app.config.errorHandler = (err, vm, info) => {
-  console.error('Unhandled error:', err, info)
-  ElMessage.error('发生了一个错误，请重试')
-}
-
-// Unhandled promise rejection
-window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason)
-  ElMessage.error('操作失败，请重试')
+// Register commonly used Lucide icons globally
+const iconsToRegister = [
+  'Key', 'Code', 'FileText', 'Server', 'Cloud', 'Package', 'User',
+  'Wallet', 'Terminal', 'File', 'Search', 'Plus', 'Star', 'Heart',
+  'Copy', 'Eye', 'EyeOff', 'Trash2', 'Edit', 'Settings', 'Lock',
+  'LogOut', 'Folder', 'Globe', 'Shield', 'ChevronRight', 'ChevronLeft',
+  'X', 'Check', 'AlertTriangle', 'RefreshCw', 'Download', 'Upload',
+  'Sun', 'Moon', 'Monitor', 'Menu', 'MoreVertical', 'ExternalLink',
+  'Clock', 'ArrowLeft', 'Home', 'Import', 'Palette', 'Minus', 'Square',
+  'Inbox', 'LayoutList',
+]
+iconsToRegister.forEach(name => {
+  if (LucideIcons[name]) {
+    app.component(name, LucideIcons[name])
+  }
 })
 
 app.mount('#app')
+
+// Global error handling
+window.addEventListener('error', (event) => {
+  console.error('Global error:', event.error)
+})
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled rejection:', event.reason)
+})
